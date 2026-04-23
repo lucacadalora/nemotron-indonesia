@@ -1,0 +1,60 @@
+# Direct Preference Optimization configuration for Nemotron-Indonesia
+# RLHF alignment using preference data
+
+model:
+  name: "./models/nemotron-indonesia-8b-sft"  # Continue from SFT checkpoint
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+
+data:
+  sources:
+    - preference_pairs
+    - human_feedback
+  max_length: 2048
+
+training:
+  mode: "dpo"
+  output_dir: "./models/nemotron-indonesia-8b-dpo"
+  
+  # DPO specific
+  beta: 0.1  # DPO temperature parameter
+  label_smoothing: 0.0
+  
+  # Batch configuration
+  per_device_batch_size: 4
+  gradient_accumulation_steps: 4
+  num_epochs: 1
+  
+  # Learning rate (very low for alignment)
+  learning_rate: 1.0e-6
+  warmup_steps: 50
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Optimization
+  optimizer: "adamw_torch"
+  lr_scheduler: "cosine"
+  
+  # Precision
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  
+  # Logging
+  logging_steps: 10
+  eval_steps: 100
+  save_steps: 200
+  save_total_limit: 2
+  
+  # Reporting
+  report_to: ["tensorboard"]
+
+hardware:
+  gpu_type: "H200"
+  gpu_count: 8
+  vram_per_gpu: 141
+  flash_attention: true
+
+resources:
+  estimated_time: "4 hours"
+  memory_per_gpu: "~50GB"

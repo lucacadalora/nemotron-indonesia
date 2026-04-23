@@ -1,0 +1,58 @@
+# Supervised Fine-Tuning configuration for Nemotron-Indonesia
+# Instruction tuning on Indonesian tasks
+
+model:
+  name: "./models/nemotron-indonesia-8b-pretrain"  # Continue from pre-trained checkpoint
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+
+data:
+  sources:
+    - indommlu
+    - nusax
+    - custom_instructions
+  max_length: 4096
+  chat_template: true
+
+training:
+  mode: "sft"
+  output_dir: "./models/nemotron-indonesia-8b-sft"
+  
+  # Batch configuration
+  per_device_batch_size: 8
+  gradient_accumulation_steps: 2
+  num_epochs: 3
+  
+  # Learning rate (lower for fine-tuning)
+  learning_rate: 5.0e-6
+  warmup_steps: 100
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  
+  # Optimization
+  optimizer: "adamw_torch"
+  lr_scheduler: "cosine"
+  
+  # Precision
+  bf16: true
+  fp16: false
+  gradient_checkpointing: true
+  
+  # Logging
+  logging_steps: 10
+  eval_steps: 200
+  save_steps: 500
+  save_total_limit: 3
+  
+  # Reporting
+  report_to: ["tensorboard"]
+
+hardware:
+  gpu_type: "H200"
+  gpu_count: 8
+  vram_per_gpu: 141
+  flash_attention: true
+
+resources:
+  estimated_time: "8 hours"
+  memory_per_gpu: "~40GB"

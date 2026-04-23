@@ -5,7 +5,7 @@
 set -e
 
 MODE=${1:-pretrain}
-MODEL_NAME="nvidia/nemotron-3-8b-base-4k"
+MODEL_NAME="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
 DATA_PATH="./data"
 OUTPUT_DIR="./models/nemotron-indonesia-8b-${MODE}"
 
@@ -13,9 +13,9 @@ OUTPUT_DIR="./models/nemotron-indonesia-8b-${MODE}"
 # 141GB VRAM per GPU, 8 GPUs = 1128GB total
 # Can handle batch_size 4 with gradient_accumulation 4 = effective batch 128
 
-BATCH_SIZE=4
-GRAD_ACC=4
-LR=2e-5
+BATCH_SIZE=2
+GRAD_ACC=8
+LR=1.5e-5
 EPOCHS=3
 
 # Check GPU availability
@@ -31,10 +31,11 @@ echo "📦 Checking dependencies..."
 pip install -q torch transformers datasets accelerate peft bitsandbytes 2>/dev/null || true
 
 # Run training with torchrun for distributed
-echo "🚀 Starting ${MODE} training on 8× H200..."
-echo "Model: ${MODEL_NAME}"
+echo "🚀 Starting ${MODE} training on 8× H200 (30B model)..."
+echo "Model: ${MODEL_NAME} (30B params)"
 echo "Output: ${OUTPUT_DIR}"
 echo "Effective batch size: $((BATCH_SIZE * GRAD_ACC * 8))"
+echo "DeepSpeed: ZeRO-3"
 
 torchrun \
     --nnodes=1 \
@@ -53,7 +54,8 @@ torchrun \
     --num_epochs ${EPOCHS} \
     --bf16 \
     --gradient_checkpointing \
-    --flash_attention
+    --flash_attention \
+    --deepspeed ./configs/deepspeed_zero3.json
 
 echo "✅ Training complete! Model saved to ${OUTPUT_DIR}"
 echo "📊 Check results.txt for IndoMMLU benchmark scores"

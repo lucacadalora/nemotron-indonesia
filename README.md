@@ -6,11 +6,11 @@ Inspired by Malaysia's Ilmu-Nemo-30B, this project aims to build Indonesia's own
 
 ## 🎯 Goals
 
-1. **Base Model**: Fine-tune Nemotron on Indonesian corpus (20B+ tokens)
-2. **Agentic Capabilities**: Tool use, reasoning, multi-step tasks
-3. **Local Languages**: Indonesian, Javanese, Sundanese, Balinese, Minangkabau
-4. **Benchmark**: Beat Sahabat AI on IndoMMLU
-5. **Deployment**: API endpoint for Indonesian enterprises
+1. **Base model**: Fine-tune `NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16` (30B params, matching Ilmu-Nemo)
+2. **Agentic capabilities**: Tool use, reasoning, multi-step tasks (like Ilmu-Nemo)
+3. **Local languages**: Indonesian, Javanese, Sundanese, Balinese, Minangkabau, Buginese, Acehnese
+4. **Benchmark**: Beat Sahabat AI 70B on IndoMMLU
+5. **Deployment**: API endpoint + NIM microservices for Indonesian enterprises
 
 ## 🖥️ Hardware
 
@@ -61,76 +61,77 @@ python prepare_data.py \
     --max_length 4096
 ```
 
-### 3. Train
+### 3. Train (3 stages, ~5 days total on 8× H200)
 
 ```bash
-# Continued pre-training
+# Stage 1: Continued pre-training (30B → 30B-Indonesia, ~3 days)
 ./run_training.sh pretrain
 
-# Supervised fine-tuning
+# Stage 2: Instruction fine-tuning (~12 hours)
 ./run_training.sh sft
 
-# DPO alignment
+# Stage 3: DPO alignment (~6 hours)
 ./run_training.sh dpo
 ```
 
 Or manually:
 
 ```bash
-torchrun --nproc_per_node=8 train_nemotron_indonesia.py \
+torchrun --nnodes=1 --nproc_per_node=8 train_nemotron_indonesia.py \
     --mode pretrain \
-    --model_name nvidia/nemotron-3-8b-base-4k \
+    --model_name nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16 \
     --data_path ./data/processed \
-    --output_dir ./models/nemotron-indonesia-8b \
-    --batch_size 4 \
-    --gradient_accumulation_steps 4 \
-    --learning_rate 2e-5 \
-    --num_epochs 3 \
+    --output_dir ./models/nemotron-indonesia-30b \
+    --batch_size 2 \
+    --gradient_accumulation_steps 8 \
+    --learning_rate 1.5e-5 \
+    --num_epochs 1 \
     --bf16 \
-    --gradient_checkpointing
+    --gradient_checkpointing \
+    --deepspeed ./configs/deepspeed_zero3.json
 ```
 
 ### 4. Evaluate
 
 ```bash
 python evaluate.py \
-    --model_path ./models/nemotron-indonesia-8b \
+    --model_path ./models/nemotron-indonesia-30b \
     --benchmark indommlu \
     --output results.json
 ```
 
 ## 📊 Training Configurations
 
-### Continued Pre-training (8B → 8B-Indonesia)
+### Continued Pre-training (30B → 30B-Indonesia)
 
 | Parameter | Value |
 |-----------|-------|
-| Base model | Nemotron-3-8B-base-4k |
+| Base model | **NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16** |
 | Data | 20B tokens (OSCAR + CC100 + Wikipedia) |
-| Batch size | 32 effective (4 per GPU × 8 GPUs) |
-| Learning rate | 2e-5 |
+| Batch size | 16 effective (2 per GPU × 8 GPUs) |
+| Learning rate | 1.5e-5 |
 | Epochs | 1 (20B tokens) |
-| Time | ~2 days |
-| Memory | ~60GB per GPU |
+| Time | **~3 days** |
+| Memory | ~100GB per GPU (DeepSpeed ZeRO-3) |
 
 ### Supervised Fine-tuning
 
 | Parameter | Value |
 |-----------|-------|
 | Data | 500K instruction pairs |
-| Batch size | 128 effective |
-| Learning rate | 5e-6 |
+| Batch size | 32 effective (2 per GPU × 8 GPUs, grad accum 8) |
+| Learning rate | 3e-6 |
 | Epochs | 3 |
-| Time | ~8 hours |
+| Time | **~12 hours** |
 
 ### DPO Alignment
 
 | Parameter | Value |
 |-----------|-------|
 | Data | 50K preference pairs |
-| Learning rate | 1e-6 |
+| Learning rate | 5e-7 |
 | Epochs | 1 |
-| Time | ~4 hours |
+| Time | **~6 hours** |
 
 ## 📚 Data Sources
 
@@ -154,21 +155,32 @@ Target scores on IndoMMLU:
 | Model | Accuracy |
 |-------|----------|
 | Sahabat AI 8B | ~45% |
+| Sahabat AI 70B | ~52% |
 | GPT-4 (zero-shot) | ~55% |
-| **Nemotron-Indonesia 8B** | **Target: 50%+** |
+| **Nemotron-Indonesia 30B** | **Target: 55%+** |
 
-## 🤝 Comparison with Sahabat AI
+## 🤝 Comparison with Sahabat AI & Ilmu-Nemo
 
-| | Sahabat AI | Nemotron-Indonesia |
-|---|---|---|
-| **Base** | Llama 3 / Gemma | **Nemotron** |
-| **Focus** | General chat | **Agentic AI** |
-| **Size** | 8B, 70B | 8B (start), 30B+ (target) |
-| **Local languages** | 5 | **10+** |
-| **Commercial use** | Open source | **Open source** |
-| **Inference** | Standard | **NVIDIA NIM optimized** |
+| | Sahabat AI | Ilmu-Nemo (Malaysia) | **Nemotron-Indonesia** |
+|---|---|---|---|
+| **Base** | Llama 3 / Gemma | Nemotron 30B | **Nemotron 30B** |
+| **Focus** | General chat | Agentic AI | **Agentic AI** |
+| **Size** | 8B, 70B | **30B** | **30B** |
+| **Languages** | 5 | Malay + English | **Indonesian + 10 local** |
+| **Commercial use** | Open source | Open source | **Open source** |
+| **Inference** | Standard | NVIDIA NIM | **NVIDIA NIM** |
 
-## 📖 References
+## 💰 Your Cost
+
+With **8× H200** you already own:
+| Resource | Cloud Cost | Your Cost |
+|----------|-----------|-----------|
+| Pre-training (30B, 3 days) | ~$5,000 | **$0** (owned) |
+| SFT (12 hours) | ~$1,000 | **$0** (owned) |
+| DPO (6 hours) | ~$500 | **$0** (owned) |
+| **Total** | **~$6,500** | **~$150 electricity** |
+
+---
 
 - [Ilmu-Nemo-30B (Malaysia)](https://theleaders-online.com/ytl-ai-labs-teams-up-with-nvidia-to-launch-ilmu%e2%80%91nemo%e2%80%9130b)
 - [Sahabat AI (Indonesia)](https://sahabat-ai.com/)

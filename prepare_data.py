@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class IndonesianDataProcessor:
     """Process and curate Indonesian text data for LLM training"""
     
-    def __init__(self, tokenizer_name: str = "nvidia/nemotron-3-8b-base-4k"):
+    def __init__(self, tokenizer_name: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"):
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -308,7 +308,7 @@ def main():
     parser.add_argument('--max_tokens', type=int, default=20_000_000_000,
                        help='Maximum tokens to process (20B default)')
     parser.add_argument('--dedup_threshold', type=float, default=0.85)
-    parser.add_argument('--tokenizer', type=str, default='nvidia/nemotron-3-8b-base-4k')
+    parser.add_argument('--tokenizer', type=str, default='nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16')
     
     args = parser.parse_args()
     

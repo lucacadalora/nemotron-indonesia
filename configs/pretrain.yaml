@@ -2,7 +2,7 @@
 # Continued pre-training on Indonesian corpus
 
 model:
-  name: "nvidia/nemotron-3-8b-base-4k"
+  name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
   trust_remote_code: true
   torch_dtype: "bfloat16"
 
@@ -17,15 +17,15 @@ data:
 
 training:
   mode: "pretrain"
-  output_dir: "./models/nemotron-indonesia-8b-pretrain"
+  output_dir: "./models/nemotron-indonesia-30b-pretrain"
   
-  # Batch configuration
-  per_device_batch_size: 4
-  gradient_accumulation_steps: 4
+  # Batch configuration (30B needs smaller batches)
+  per_device_batch_size: 2
+  gradient_accumulation_steps: 8
   num_epochs: 1
   
-  # Learning rate
-  learning_rate: 2.0e-5
+  # Learning rate (lower for larger model)
+  learning_rate: 1.5e-5
   warmup_steps: 1000
   weight_decay: 0.01
   max_grad_norm: 1.0
@@ -43,7 +43,7 @@ training:
   logging_steps: 10
   eval_steps: 500
   save_steps: 1000
-  save_total_limit: 3
+  save_total_limit: 2  # 30B checkpoints are large
   
   # Distributed
   dataloader_num_workers: 4
@@ -52,6 +52,9 @@ training:
   # Reporting
   report_to: ["tensorboard"]
 
+  # DeepSpeed
+  deepspeed: "./configs/deepspeed_zero3.json"
+
 # H200 specific optimizations
 hardware:
   gpu_type: "H200"
@@ -59,8 +62,9 @@ hardware:
   vram_per_gpu: 141
   flash_attention: true
   
-# Estimated resources
+# Estimated resources for 30B
 resources:
   total_tokens: 20_000_000_000  # 20B tokens
-  estimated_time: "2 days"
-  memory_per_gpu: "~60GB"
+  estimated_time: "3 days"
+  memory_per_gpu: "~100GB"
+  checkpoint_size: "~60GB per checkpoint"

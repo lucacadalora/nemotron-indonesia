@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 class TrainingConfig:
     """Training configuration for Nemotron-Indonesia"""
     # Model
-    model_name: str = "nvidia/nemotron-3-8b-base-4k"
+    model_name: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
     output_dir: str = "./models/nemotron-indonesia-8b"
     
     # Data
@@ -69,10 +69,10 @@ class TrainingConfig:
     
     # Training
     mode: str = "pretrain"  # pretrain, sft, dpo
-    batch_size: int = 4
-    gradient_accumulation_steps: int = 4
-    learning_rate: float = 2e-5
-    num_epochs: int = 3
+    batch_size: int = 2
+    gradient_accumulation_steps: int = 8
+    learning_rate: float = 1.5e-5
+    num_epochs: int = 1  # For pre-training, 1 epoch over 20B tokens
     warmup_steps: int = 500
     weight_decay: float = 0.01
     max_grad_norm: float = 1.0
@@ -84,13 +84,13 @@ class TrainingConfig:
     flash_attention: bool = True
     
     # LoRA (for memory efficiency if needed)
-    use_lora: bool = False
+    use_lora: bool = False  # Full fine-tuning with 8x H200 (141GB each)
     lora_r: int = 64
     lora_alpha: int = 128
     lora_dropout: float = 0.05
     
     # DeepSpeed / FSDP
-    deepspeed_config: Optional[str] = None
+    deepspeed_config: Optional[str] = "./configs/deepspeed_zero3.json"
     fsdp: bool = False
     
     # Checkpointing
@@ -153,14 +153,23 @@ def load_model(config: TrainingConfig, tokenizer):
     """Load model with optimizations for H200"""
     logger.info(f"Loading model: {config.model_name}")
     
-    # Load in BF16 (H200 optimized)
-    model = AutoModelForCausalLM.from_pretrained(
-        config.model_name,
-        torch_dtype=torch.bfloat16,
-        trust_remote_code=True,
-        use_flash_attention_2=config.flash_attention,
-        device_map='auto' if not dist.is_initialized() else None,
-    )
+    # Load model in BF16 (H200 optimized) with DeepSpeed support
+    if config.deepspeed_config:
+        logger.info(f"Using DeepSpeed config: {config.deepspeed_config}")
+        model = AutoModelForCausalLM.from_pretrained(
+            config.model_name,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+            use_flash_attention_2=config.flash_attention,
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            config.model_name,
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+            use_flash_attention_2=config.flash_attention,
+            device_map='auto' if not dist.is_initialized() else None,
+        )
     
     # Resize embeddings for new tokens
     model.resize_token_embeddings(len(tokenizer))
@@ -330,8 +339,8 @@ def create_trainer(config: TrainingConfig, model, tokenizer, train_dataset, eval
         dataloader_num_workers=4,
         dataloader_pin_memory=True,
         
-        # Distributed
-        local_rank=config.local_rank,
+        # DeepSpeed
+        deepspeed=config.deepspeed_config if config.deepspeed_config else None,
         
         # Reporting
         report_to=["tensorboard"],

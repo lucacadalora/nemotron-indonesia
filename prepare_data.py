@@ -169,15 +169,22 @@ class IndonesianDataProcessor:
         special_tokens = {'additional_special_tokens': list(self.lang_tokens.values())}
         self.tokenizer.add_special_tokens(special_tokens)
     
-    def download_oscar(self, language: str = 'id', split: str = 'train', streaming: bool = True):
-        """Download OSCAR corpus"""
-        logger.info(f"Downloading OSCAR for language: {language}")
+    def download_sealion_pile(self, language: str = 'id'):
+        """Download SEA-LION Pile (SEA-PILE-v1) and filter for Indonesian only
+        
+        SEA-PILE-v1 contains 11 SEA languages. We filter for files starting
+        with 'c4-id' to get only Indonesian content.
+        """
+        logger.info(f"Downloading SEA-LION Pile for language: {language}")
         
         try:
-            ds = load_dataset('oscar-corpus/OSCAR-2301', language=f'{language}', split=split, streaming=streaming)
+            ds = load_dataset('aisingapore/SEA-PILE-v1', split='train', streaming=True)
+            # Filter for Indonesian files only (c4-id prefix)
+            ds = ds.filter(lambda x: x.get('file', '').startswith(f'c4-{language}'))
+            logger.info(f"SEA-LION Pile filtered to {language} subset")
             return ds
         except Exception as e:
-            logger.warning(f"Failed to load OSCAR: {e}")
+            logger.warning(f"Failed to load SEA-LION Pile: {e}")
             return None
     
     def download_cc100(self, language: str = 'id'):
@@ -457,8 +464,8 @@ Examples:
     )
     parser.add_argument('--output_dir', type=str, default='./data/processed',
                        help='Where processed data is saved (local server storage)')
-    parser.add_argument('--datasets', nargs='+', default=['oscar', 'cc100', 'wikipedia'],
-                       choices=['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'all'],
+    parser.add_argument('--datasets', nargs='+', default=['cc100', 'wikipedia', 'liputan6', 'sealion'],
+                       choices=['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'sealion', 'all'],
                        help='Which datasets to download and process')
     parser.add_argument('--min_length', type=int, default=100,
                        help='Minimum document length (characters)')
@@ -507,7 +514,7 @@ Examples:
     
     datasets_to_download = []
     if 'all' in args.datasets:
-        datasets_to_download = ['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6']
+        datasets_to_download = ['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'sealion']
     else:
         datasets_to_download = args.datasets
     
@@ -524,6 +531,8 @@ Examples:
             datasets['kaskus'] = processor.download_kaskus()
         elif name == 'liputan6':
             datasets['liputan6'] = processor.download_liputan6()
+        elif name == 'sealion':
+            datasets['sealion'] = processor.download_sealion_pile()
     
     logger.info("\n" + "-" * 70)
     logger.info("PHASE 1 COMPLETE")

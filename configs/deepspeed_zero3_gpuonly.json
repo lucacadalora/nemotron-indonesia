@@ -5,19 +5,12 @@
   "zero_optimization": {
     "stage": 3,
     "offload_optimizer": {
-      "device": "nvme",
-      "nvme_path": "/tmp/nvme_offload",
-      "pin_memory": true,
-      "buffer_count": 4,
-      "fast_init": false
+      "device": "none",
+      "pin_memory": true
     },
     "offload_param": {
-      "device": "nvme",
-      "nvme_path": "/tmp/nvme_offload",
-      "pin_memory": true,
-      "buffer_count": 5,
-      "buffer_size": 1e8,
-      "max_in_cpu": 1e9
+      "device": "none",
+      "pin_memory": true
     },
     "overlap_comm": true,
     "contiguous_gradients": true,

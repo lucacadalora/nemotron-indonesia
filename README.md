@@ -63,6 +63,13 @@ source nemotron-indonesia/bin/activate
 uv pip install -r requirements.txt
 ```
 
+Error fix when installing `flash-attn` as follows.
+```bash
+sudo apt install python3-dev
+uv pip install torch psutil numpy
+uv pip install flash-attn==2.8.3 --no-build-isolation
+```
+
 ### 2. Data Preparation
 
 ```bash

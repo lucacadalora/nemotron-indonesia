@@ -46,7 +46,16 @@ Nemotron-Indonesia is a sovereign Indonesian large language model built on NVIDI
 - **Strengths:** First-mover, big tech backing, established ecosystem
 - **Weaknesses:** Not agentic, Llama commercial license restrictions, limited local languages
 
-### 3.2 Ilmu-Nemo-30B (Malaysian Benchmark)
+### 3.2 SEA-LION (ASEAN Regional Benchmark)
+- **Builder:** AI Singapore (NUS-hosted, NRF-funded)
+- **Base:** MPT (3B, 7B) → Llama 3 (8B) → Gemma 2 (9B)
+- **Data:** 980B tokens (v1) / 50B+ tokens (v3) across 11 SEA languages
+- **Focus:** Southeast Asian multilingual LLM
+- **Strengths:** Government-backed, open source, SEA-LION Pile dataset, proven collaborator (co-built Sahabat AI)
+- **Weaknesses:** Not Indonesia-specific, smaller model sizes, not agentic
+- **Collaboration potential:** AI Singapore is a natural partner — they already collaborated with GoTo on Sahabat AI
+
+### 3.3 Ilmu-Nemo-30B (Malaysian Benchmark)
 - **Builder:** YTL AI Labs × NVIDIA
 - **Base:** NVIDIA Nemotron 30B
 - **Launch:** March 17, 2026
@@ -54,17 +63,18 @@ Nemotron-Indonesia is a sovereign Indonesian large language model built on NVIDI
 - **Achievement:** +23% on MalayMMLU vs base model
 - **Infrastructure:** YTL AI Cloud (NVIDIA DGX)
 
-### 3.3 Nemotron-Indonesia Positioning
-| Attribute | Sahabat AI | Ilmu-Nemo | Nemotron-Indonesia |
-|-----------|-----------|-----------|-------------------|
-| **Base Model** | Llama 3 / Gemma | Nemotron 30B | **Nemotron 30B** |
-| **Size** | 8B, 70B | **30B** | **30B** |
-| **Focus** | General chat | Agentic AI | **Agentic AI** |
-| **Local Languages** | 5 | Malay + EN | **10+** |
-| **Commercial License** | Open source | Open source | **Open source** |
-| **Inference Stack** | Standard | NVIDIA NIM | **NVIDIA NIM** |
-| **Country** | Indonesia | Malaysia | **Indonesia** |
-| **Agentic Tools** | No | Yes | **Yes** |
+### 3.4 Nemotron-Indonesia Positioning
+| Attribute | Sahabat AI | SEA-LION | Ilmu-Nemo | Nemotron-Indonesia |
+|-----------|-----------|----------|-----------|-------------------|
+| **Base Model** | Llama 3 / Gemma | MPT/Llama/Gemma | Nemotron 30B | **Nemotron 30B** |
+| **Size** | 8B, 70B | 3B, 7B, 8B, 9B | **30B** | **30B** |
+| **Focus** | General chat | SEA multilingual | Agentic AI | **Agentic AI** |
+| **Local Languages** | 5 | 11 | Malay + EN | **10+** |
+| **Indonesia-Specific** | Yes | Partial | No | **Yes** |
+| **Commercial License** | Open source | MIT/Open | Open source | **Open source** |
+| **Inference Stack** | Standard | Standard | NVIDIA NIM | **NVIDIA NIM** |
+| **Agentic Tools** | No | No | Yes | **Yes** |
+| **Gov Backing** | Private (GoTo) | Singapore Gov | Private (YTL) | **Jatevo + partners** |
 
 ---
 
@@ -195,21 +205,30 @@ With DeepSpeed ZeRO-3:
 |-------|----------|-------|
 | Sahabat AI 8B | ~45% | Baseline |
 | Sahabat AI 70B | ~52% | Current best Indonesian |
+| SEA-LION v3-9B | ~55% | AI Singapore (SEA multilingual) |
 | GPT-4 (zero-shot) | ~55% | General model |
 | **Nemotron-Indonesia 30B** | **Target: 55%+** | **Our goal** |
 
 ### 6.2 Secondary Benchmarks
+- **SEA-HELM / BHASA:** SEA-LION's benchmark — target competitive scores
 - **NusaX Sentiment:** 12 local languages, target 80%+ accuracy
 - **IndoNLI:** Natural language inference, target 75%+ accuracy
 - **IndoSum:** Summarization, target ROUGE-L 35+
 - **Custom Agentic Eval:** Tool use, multi-step reasoning (custom benchmark)
 
 ### 6.3 Evaluation Methodology
-1. Run automated benchmarks (IndoMMLU, NusaX, IndoNLI)
+1. Run automated benchmarks (IndoMMLU, NusaX, IndoNLI, SEA-HELM)
 2. Human evaluation on 100 diverse prompts
-3. Compare against Sahabat AI 70B side-by-side
+3. Compare against Sahabat AI 70B and SEA-LION v3 side-by-side
 4. Safety evaluation (red-teaming for harmful outputs)
 5. Agentic capability testing (function calling accuracy)
+
+### 6.4 AI Singapore Collaboration Opportunity
+SEA-LION's BHASA/SEA-HELM benchmark is the gold standard for SEA language evaluation. Nemotron-Indonesia should:
+- Submit to SEA-LION Leaderboard for official ranking
+- Propose joint research on agentic capabilities for SEA languages
+- Share IndoMMLU training data (train split only) with AI Singapore community
+- Explore NVIDIA + AI Singapore + Jatevo three-way partnership
 
 ---
 

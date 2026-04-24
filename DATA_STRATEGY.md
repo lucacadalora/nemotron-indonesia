@@ -33,6 +33,7 @@ Sahabat AI used 50B tokens and got 52% on IndoMMLU. More data ≠ better. We nee
 | **Indonesian Academic Corpus** | 2.5B | 12.5% | A+ | Scientific papers, textbooks, educational content |
 | **OSCAR (filtered)** | 5.0B | 25% | B+ | Broad web coverage, deduplicated & quality-scored |
 | **CC100 Indonesian (filtered)** | 3.0B | 15% | B+ | Web diversity, filtered for quality |
+| **SEA-LION Pile - Indonesian** | 1.0B | 5% | A | AI Singapore-curated SEA language corpus |
 | **Liputan6 + ID News** | 2.0B | 10% | A | Formal language, current events, social science |
 | **Kaskus (heavily filtered)** | 1.0B | 5% | C+ | Informal Indonesian, internet slang, cultural context |
 | **Indonesian Government Docs** | 1.5B | 7.5% | A | Legal, policy, civic education (civics exam content) |
@@ -60,6 +61,23 @@ Sahabat AI used 50B tokens and got 52% on IndoMMLU. More data ≠ better. We nee
 
 **C+ (Informal, heavily filtered):**
 - Kaskus forums → only posts >200 chars, language confidence >0.95, toxicity score <0.3
+
+---
+
+### 2.3 SEA-LION Pile — AI Singapore Collaboration Asset
+
+SEA-LION (Southeast Asian Languages in One Network) is AI Singapore's flagship multilingual LLM project. Their **SEA-LION Pile** dataset is openly available and represents the highest-quality curated Indonesian web corpus.
+
+**Why we include it:**
+- ✅ Already used by Sahabat AI (27.5B tokens, 55% of their pre-training data)
+- ✅ AI Singapore is a **proven collaborator** — they co-developed Sahabat AI with GoTo
+- ✅ Opens door to future partnership with AI Singapore (NUS-backed, government-funded)
+- ✅ Higher quality than raw OSCAR/CC100 — already filtered for SEA languages
+- ✅ Includes Javanese, Sundanese, Balinese subsets for local language coverage
+
+**Dataset:** https://huggingface.co/datasets/aisingapore/sea-lion-pile
+
+**Note:** Use SEA-LION Pile v2 (latest) which filters CommonCrawl WARC with fastText language classifier for 11 SEA languages.
 
 ---
 
@@ -268,14 +286,14 @@ For each prompt, generate 4 responses using the SFT model:
 
 ## 7. Expected IndoMMLU Breakdown by Domain
 
-| Domain | Sahabat AI 70B | Nemotron-ID 30B Target | Strategy |
-|--------|---------------|----------------------|----------|
-| **Humanities** | ~50% | **55%+** | Heavy Wikipedia + news + religious texts |
-| **Indonesian Language** | ~55% | **60%+** | Formal corpus + grammar-focused SFT |
-| **Local Languages** | ~45% | **55%+** | Javanese/Sundanese/Balinese pre-train data |
-| **Social Science** | ~52% | **58%+** | Government docs + news + civics textbooks |
-| **STEM** | ~48% | **55%+** | Academic corpus + English STEM transfer |
-| **Overall** | **~52%** | **55%+** | **Domain-balanced, education-heavy** |
+| Domain | Sahabat AI 70B | SEA-LION v3-9B | Nemotron-ID 30B Target | Strategy |
+|--------|---------------|----------------|----------------------|----------|
+| **Humanities** | ~50% | ~52% | **55%+** | Heavy Wikipedia + news + religious texts |
+| **Indonesian Language** | ~55% | ~58% | **60%+** | Formal corpus + grammar-focused SFT |
+| **Local Languages** | ~45% | ~60% | **55%+** | Javanese/Sundanese/Balinese pre-train data |
+| **Social Science** | ~52% | ~54% | **58%+** | Government docs + news + civics textbooks |
+| **STEM** | ~48% | ~50% | **55%+** | Academic corpus + English STEM transfer |
+| **Overall** | **~52%** | **~55%** | **55%+** | **Domain-balanced, education-heavy** |
 
 ---
 

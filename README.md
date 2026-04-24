@@ -29,13 +29,13 @@ Inspired by Malaysia's Ilmu-Nemo-30B (YTL AI Labs x NVIDIA, March 2026), this pr
 
 ```
 nemotron-indonesia/
-|-- PRD.md                          # Full requirements document
-|-- DATA_STRATEGY.md                # Rigorous data curation strategy
-|-- train_nemotron_indonesia.py     # Main training pipeline (3 stages)
-|-- run_training.sh                 # Quick start launcher
-|-- prepare_data.py                 # Dataset curation + quality pipeline
-|-- evaluate.py                     # IndoMMLU + SEA-HELM benchmarks
-|-- requirements.txt                # Python dependencies
+|-- [PRD.md](PRD.md)                          # Full requirements document
+|-- [DATA_STRATEGY.md](DATA_STRATEGY.md)                # Rigorous data curation strategy
+|-- [train_nemotron_indonesia.py](train_nemotron_indonesia.py)     # Main training pipeline (3 stages)
+|-- [run_training.sh](run_training.sh)                 # Quick start launcher
+|-- [prepare_data.py](prepare_data.py)                 # Dataset curation + quality pipeline
+|-- [evaluate.py](evaluate.py)                     # IndoMMLU + SEA-HELM benchmarks
+|-- [requirements.txt](requirements.txt)                # Python dependencies
 |-- configs/
 |   |-- deepspeed_zero3.json        # DeepSpeed ZeRO-3 config
 |   |-- deepspeed_zero3_gpuonly.json

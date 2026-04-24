@@ -55,6 +55,14 @@ conda activate nemotron-indonesia
 pip install -r requirements.txt
 ```
 
+Alternatively, we can use `uv` to prepare the environment.
+
+```bash
+uv venv nemotron-indonesia --python 3.10
+source nemotron-indonesia/bin/activate
+uv pip install -r requirements.txt
+```
+
 ### 2. Data Preparation
 
 ```bash

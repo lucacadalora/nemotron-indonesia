@@ -58,17 +58,34 @@ pip install -r requirements.txt
 ### 2. Data Preparation
 
 ```bash
-# Download and process all datasets with rigorous quality pipeline
+# Full pipeline with NER quality filter (recommended for production)
 python prepare_data.py \
     --output_dir ./data/processed \
-    --datasets oscar cc100 sealion wikipedia kaskus liputan6 govdocs academic \
-    --quality-threshold 0.65 \
-    --dedup \
-    --decontaminate ./data/benchmark_tests/
+    --datasets oscar cc100 wikipedia \
+    --use_ner_filter \
+    --quality_threshold 0.1
+
+# Quick mode (skip NER, for initial exploration)
+python prepare_data.py \
+    --output_dir ./data/processed \
+    --datasets wikipedia liputan6
 ```
 
+**Pipeline phases (all on your server):**
+
+| Phase | What happens | Time |
+|-------|-------------|------|
+| **1. DOWNLOAD** | Fetch from HuggingFace (OSCAR, CC100, Wikipedia, etc.) | ~10-30 min |
+| **2. CLEAN** | Regex filters, length checks, language detection | ~5 min |
+| **3. QUALITY** | Optional: NER entity-density scoring (BERT-based) | ~20 min |
+| **4. PACKAGE** | Deduplication, tokenization, language tags, save | ~10 min |
+
+**The NER filter** (`--use_ner_filter`) uses `cahya/bert-base-indonesian-NER` to score
+documents by entity density. Documents rich in people, organizations, and locations
+(like news, Wikipedia) score higher. Entity-sparse documents (spam, noise) are filtered out.
+
 See [DATA_STRATEGY.md](DATA_STRATEGY.md) for the full rigorous pipeline including:
-- Multi-signal quality scoring (perplexity, toxicity, readability)
+- Multi-signal quality scoring (perplexity, toxicity, readability, **NER entity density**)
 - 3-level deduplication (exact + MinHash LSH + fuzzy simhash)
 - Benchmark decontamination (13-gram Bloom filter against IndoMMLU/NusaX test sets)
 - Curriculum learning (easy to medium to hard)

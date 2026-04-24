@@ -34,6 +34,7 @@ nemotron-indonesia/
 |-- [train_nemotron_indonesia.py](train_nemotron_indonesia.py)     # Main training pipeline (3 stages)
 |-- [run_training.sh](run_training.sh)                 # Quick start launcher
 |-- [prepare_data.py](prepare_data.py)                 # Dataset curation + quality pipeline
+|-- [multica_sync.py](multica_sync.py)           # 🆕 Sync progress to Multica PM
 |-- [evaluate.py](evaluate.py)                     # IndoMMLU + SEA-HELM benchmarks
 |-- [requirements.txt](requirements.txt)                # Python dependencies
 |-- configs/
@@ -42,6 +43,31 @@ nemotron-indonesia/
 |-- data/                           # Training data (generated)
 |-- models/                         # Output checkpoints (generated)
 ```
+
+---
+
+## Track Progress in Multica
+
+You can track Nemotron pipeline progress in your [Multica](https://multica.jatevo.ai) instance:
+
+```bash
+# 1. Setup: Create project + tasks in Multica
+python multica_sync.py --setup \
+    --api-token YOUR_MULTICA_TOKEN \
+    --workspace-id YOUR_WORKSPACE_ID
+
+# 2. Update status when a phase completes
+python multica_sync.py --update-phase data_prep --status done
+python multica_sync.py --update-phase pretrain --status in_progress
+
+# 3. View dashboard
+python multica_sync.py --dashboard
+```
+
+This creates 5 pipeline phases as tasks in Multica and syncs status as you progress.
+
+**Get your API token:** Multica UI → Settings → API Tokens  
+**Get workspace ID:** From URL `/workspace/WORKSPACE_ID`
 
 ---
 

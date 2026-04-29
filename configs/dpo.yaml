@@ -1,8 +1,8 @@
-# Direct Preference Optimization configuration for Nemotron-Indonesia
+# Direct Preference Optimization configuration for Nemotron-Indonesia Omni
 # RLHF alignment using preference data
 
 model:
-  name: "./models/nemotron-indonesia-30b-sft"  # Continue from SFT checkpoint
+  name: "./models/nemotron-indonesia-omni-30b-sft"  # Continue from SFT checkpoint
   trust_remote_code: true
   torch_dtype: "bfloat16"
 
@@ -14,7 +14,7 @@ data:
 
 training:
   mode: "dpo"
-  output_dir: "./models/nemotron-indonesia-30b-dpo"
+  output_dir: "./models/nemotron-indonesia-omni-30b-dpo"
   
   # DPO specific
   beta: 0.1  # DPO temperature parameter

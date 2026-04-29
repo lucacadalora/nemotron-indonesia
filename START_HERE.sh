@@ -5,7 +5,7 @@
 set -e
 
 echo "=========================================="
-echo "Nemotron-Indonesia 30B - Setup & Run"
+echo "Nemotron-Indonesia Omni 30B-A3B - Setup & Run"
 echo "=========================================="
 
 # 1. CREATE PROJECT DIRECTORY
@@ -37,14 +37,14 @@ nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
 
 # 5. DOWNLOAD BASE MODEL (30B)
 echo ""
-echo "Downloading Nemotron-3-Nano-30B..."
+echo "Validating Nemotron-3-Nano-Omni-30B-A3B tokenizer..."
 python -c "
 from transformers import AutoModelForCausalLM, AutoTokenizer
-model_name = 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16'
+model_name = 'nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16'
 print('Downloading tokenizer...')
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 print('Tokenizer downloaded')
-print('Model weights will download during first training run')
+print('Model weights will download during first training/eval run; BF16 weights are ~62GB')
 "
 
 echo ""

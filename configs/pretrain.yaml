@@ -1,8 +1,8 @@
-# Pre-training configuration for Nemotron-Indonesia
-# Continued pre-training on Indonesian corpus
+# Pre-training configuration for Nemotron-Indonesia Omni
+# Indonesian text continued pre-training/adaptation on Omni base
 
 model:
-  name: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
+  name: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
   trust_remote_code: true
   torch_dtype: "bfloat16"
 
@@ -12,14 +12,14 @@ data:
     - cc100
     - wikipedia
   min_length: 100
-  max_length: 4096
+  max_length: 8192
   dedup_threshold: 0.85
 
 training:
   mode: "pretrain"
-  output_dir: "./models/nemotron-indonesia-30b-pretrain"
+  output_dir: "./models/nemotron-indonesia-omni-30b-pretrain"
   
-  # Batch configuration (30B needs smaller batches)
+  # Batch configuration (Omni 30B-A3B; validate memory before full run)
   per_device_batch_size: 2
   gradient_accumulation_steps: 8
   num_epochs: 1
@@ -67,4 +67,4 @@ resources:
   total_tokens: 20_000_000_000  # 20B tokens
   estimated_time: "3 days"
   memory_per_gpu: "~100GB"
-  checkpoint_size: "~60GB per checkpoint"
+  checkpoint_size: "~62GB+ per checkpoint"

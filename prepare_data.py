@@ -146,7 +146,7 @@ class NERQualityFilter:
 class IndonesianDataProcessor:
     """Process and curate Indonesian text data for LLM training"""
     
-    def __init__(self, tokenizer_name: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"):
+    def __init__(self, tokenizer_name: str = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"):
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -475,8 +475,8 @@ Examples:
                        help='Maximum tokens to process (20B default)')
     parser.add_argument('--dedup_threshold', type=float, default=0.85,
                        help='MinHash similarity threshold (0.85 = 85%% similar = duplicate)')
-    parser.add_argument('--tokenizer', type=str,
-                       default='nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16',
+    parser.add_argument('--tokenizer', '--tokenizer_name', dest='tokenizer', type=str,
+                       default='nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16',
                        help='Tokenizer to use for final tokenization')
     
     # NER Quality Filter arguments

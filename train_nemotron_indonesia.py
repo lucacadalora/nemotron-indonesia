@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Nemotron-Indonesia Training Script
+Nemotron-Indonesia Omni Training Script
 Optimized for 8× H200 (141GB each)
-Supports: continued pre-training, SFT, DPO
+Supports text continued pre-training/adaptation, SFT, DPO scaffolds.
+For full multimodal training, use NVIDIA NeMo/Megatron-Bridge Omni recipes.
 
 Usage:
     torchrun --nproc_per_node=8 train_nemotron_indonesia.py \
         --mode pretrain \
-        --model_name nvidia/nemotron-3-8b-base-4k \
+        --model_name nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
         --data_path ./data/indonesian_corpus \
-        --output_dir ./models/nemotron-indonesia-8b \
-        --batch_size 4 \
-        --gradient_accumulation_steps 4 \
-        --learning_rate 2e-5 \
+        --output_dir ./models/nemotron-indonesia-omni-30b \
+        --batch_size 2 \
+        --gradient_accumulation_steps 8 \
+        --learning_rate 1.5e-5 \
         --num_epochs 3
 
 Requirements:
@@ -60,12 +61,12 @@ logger = logging.getLogger(__name__)
 class TrainingConfig:
     """Training configuration for Nemotron-Indonesia"""
     # Model
-    model_name: str = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
-    output_dir: str = "./models/nemotron-indonesia-8b"
+    model_name: str = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+    output_dir: str = "./models/nemotron-indonesia-omni-30b"
     
     # Data
     data_path: str = "./data"
-    max_length: int = 4096
+    max_length: int = 8192
     
     # Training
     mode: str = "pretrain"  # pretrain, sft, dpo
@@ -347,7 +348,7 @@ def create_trainer(config: TrainingConfig, model, tokenizer, train_dataset, eval
         
         # Push to hub (optional)
         # push_to_hub=True,
-        # hub_model_id="jatevo/nemotron-indonesia-8b",
+        # hub_model_id="jatevo/nemotron-indonesia-omni-30b",
     )
     
     # Data collator
@@ -419,14 +420,21 @@ def evaluate_model(model, tokenizer, eval_dataset):
 def main():
     parser = argparse.ArgumentParser(description='Train Nemotron-Indonesia')
     parser.add_argument('--mode', type=str, default='pretrain', choices=['pretrain', 'sft', 'dpo'])
-    parser.add_argument('--model_name', type=str, default='nvidia/nemotron-3-8b-base-4k')
+    parser.add_argument('--model_name', type=str, default='nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16')
     parser.add_argument('--data_path', type=str, default='./data')
-    parser.add_argument('--output_dir', type=str, default='./models/nemotron-indonesia-8b')
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--gradient_accumulation_steps', type=int, default=4)
-    parser.add_argument('--learning_rate', type=float, default=2e-5)
-    parser.add_argument('--num_epochs', type=int, default=3)
+    parser.add_argument('--output_dir', type=str, default='./models/nemotron-indonesia-omni-30b')
+    parser.add_argument('--max_length', type=int, default=8192)
+    parser.add_argument('--batch_size', type=int, default=2)
+    parser.add_argument('--gradient_accumulation_steps', type=int, default=8)
+    parser.add_argument('--learning_rate', type=float, default=1.5e-5)
+    parser.add_argument('--num_epochs', type=int, default=1)
     parser.add_argument('--use_lora', action='store_true')
+    parser.add_argument('--bf16', action='store_true', default=True)
+    parser.add_argument('--fp16', action='store_true', default=False)
+    parser.add_argument('--gradient_checkpointing', action='store_true', default=True)
+    parser.add_argument('--flash_attention', action='store_true', default=True)
+    parser.add_argument('--deepspeed', dest='deepspeed_config', type=str, default='./configs/deepspeed_zero3.json')
+    parser.add_argument('--no_deepspeed', dest='deepspeed_config', action='store_const', const=None)
     parser.add_argument('--local_rank', type=int, default=-1)
     
     args = parser.parse_args()
@@ -437,11 +445,17 @@ def main():
         model_name=args.model_name,
         data_path=args.data_path,
         output_dir=args.output_dir,
+        max_length=args.max_length,
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         learning_rate=args.learning_rate,
         num_epochs=args.num_epochs,
         use_lora=args.use_lora,
+        bf16=args.bf16,
+        fp16=args.fp16,
+        gradient_checkpointing=args.gradient_checkpointing,
+        flash_attention=args.flash_attention,
+        deepspeed_config=args.deepspeed_config,
         local_rank=args.local_rank,
     )
     

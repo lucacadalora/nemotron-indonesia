@@ -5,18 +5,23 @@
 set -e
 
 MODE=${1:-pretrain}
-MODEL_NAME="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16"
+MODEL_NAME="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
 DATA_PATH="./data"
-OUTPUT_DIR="./models/nemotron-indonesia-8b-${MODE}"
+OUTPUT_DIR="./models/nemotron-indonesia-omni-30b-${MODE}"
 
 # H200 optimized settings
-# 141GB VRAM per GPU, 8 GPUs = 1128GB total
-# Can handle batch_size 4 with gradient_accumulation 4 = effective batch 128
+# 141GB VRAM per GPU, 8 GPUs = 1128GB total.
+# Start conservatively for Omni; raise batch/context only after a memory smoke test.
 
 BATCH_SIZE=2
 GRAD_ACC=8
 LR=1.5e-5
-EPOCHS=3
+case "${MODE}" in
+  pretrain) EPOCHS=1 ;;
+  sft) EPOCHS=3 ;;
+  dpo) EPOCHS=1 ;;
+  *) echo "Usage: ./run_training.sh [pretrain|sft|dpo]"; exit 1 ;;
+esac
 
 # Check GPU availability
 echo "🔍 Checking GPUs..."
@@ -31,8 +36,8 @@ echo "📦 Checking dependencies..."
 pip install -q torch transformers datasets accelerate peft bitsandbytes 2>/dev/null || true
 
 # Run training with torchrun for distributed
-echo "🚀 Starting ${MODE} training on 8× H200 (30B model)..."
-echo "Model: ${MODEL_NAME} (30B params)"
+echo "🚀 Starting ${MODE} adaptation on 8× H200 (Omni 30B-A3B model)..."
+echo "Model: ${MODEL_NAME} (Omni 30B-A3B)"
 echo "Output: ${OUTPUT_DIR}"
 echo "Effective batch size: $((BATCH_SIZE * GRAD_ACC * 8))"
 echo "DeepSpeed: ZeRO-3"

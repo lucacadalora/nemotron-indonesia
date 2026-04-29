@@ -1,0 +1,68 @@
+# Multimodal SFT configuration scaffold for Nemotron-Indonesia Omni
+# Use with NVIDIA NeMo/Megatron-Bridge Omni recipes, not the current text-only HF Trainer scaffold.
+
+model:
+  name: "./models/nemotron-indonesia-omni-30b-sft"
+  base_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+  modalities:
+    - text
+    - image
+    - audio
+    - video
+
+nvidia_sources:
+  nemotron_cookbook: "https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3-Nano-Omni"
+  megatron_bridge_example: "https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/models/vlm/nemotron_3_omni"
+  datadesigner_recipes: "https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/docs/assets/recipes/vlm_long_doc"
+  nemo_container: "nvcr.io/nvidia/nemo:26.04"
+
+data:
+  manifest_dir: "./data/omni_manifests"
+  sources:
+    - indonesian_pdf_pages
+    - scanned_docs_ocr
+    - chart_table_qa
+    - audio_transcript_qa
+    - screenshot_ui_tasks
+    - tool_call_traces
+  max_text_length: 8192
+  max_video_duration_seconds: 120
+  video_sampling:
+    fps: 2
+    max_frames: 256
+  audio:
+    sample_rate_min_hz: 8000
+    max_duration_seconds: 3600
+
+training:
+  mode: "multimodal_sft"
+  output_dir: "./models/nemotron-indonesia-omni-30b-mm-sft"
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 16
+  num_epochs: 1
+  learning_rate: 1.0e-6
+  warmup_steps: 200
+  weight_decay: 0.01
+  bf16: true
+  gradient_checkpointing: true
+  save_steps: 500
+  eval_steps: 200
+  report_to: ["tensorboard"]
+
+hardware:
+  gpu_type: "H200"
+  gpu_count: 8
+  vram_per_gpu: 141
+  notes:
+    - "Validate with a 100-step run before full multimodal SFT."
+    - "Use Megatron-Bridge/NeMo Omni path for full multimodal training."
+    - "Current train_nemotron_indonesia.py is text-only adaptation scaffolding."
+
+evaluation:
+  - IndoDocQA
+  - IndoChartQA
+  - IndoAudioQA
+  - IndoScreenQA
+  - IndoAgentTools

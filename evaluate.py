@@ -5,7 +5,7 @@ Runs IndoMMLU and other Indonesian benchmarks
 
 Usage:
     python evaluate.py \
-        --model_path ./models/nemotron-indonesia-8b \
+        --model_path ./models/nemotron-indonesia-omni-30b \
         --benchmark indommlu \
         --output results.json \
         --batch_size 8

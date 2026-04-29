@@ -1,10 +1,12 @@
-# Nemotron-Indonesia 30B — RIGOROUS DATA STRATEGY
-## For Maximum IndoMMLU Benchmark Performance
+# Nemotron-Indonesia Omni — Text Data Strategy
+## For Maximum IndoMMLU / Bahasa Benchmark Performance
 
-**Version:** 1.1  
-**Date:** April 24, 2026  
-**Status:** Production-Ready Pipeline  
-**Goal:** Beat Sahabat AI 70B (52%) → Target 55%+ on IndoMMLU
+**Version:** 2.0
+**Date:** April 29, 2026
+**Status:** Text pipeline retained; flagship base pivoted to Nemotron 3 Nano Omni
+**Goal:** Adapt `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` for Indonesian text performance while preserving benchmark integrity.
+
+> This document covers the **text/language** side of the repo. Multimodal document/audio/video data now lives in `OMNI_DATA_STRATEGY.md`.
 
 ---
 
@@ -164,7 +166,7 @@ difficulty_score = (
 # Tokenize with Nemotron tokenizer
 # Add language tokens for multilingual segments:
 <|id|>    → Indonesian
-<|jv|>    → Javanese  
+<|jv|>    → Javanese
 <|su|>    → Sundanese
 <|ban|>   → Balinese
 <|min|>   → Minangkabau

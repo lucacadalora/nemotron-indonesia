@@ -1,8 +1,8 @@
-# Supervised Fine-Tuning configuration for Nemotron-Indonesia
+# Supervised Fine-Tuning configuration for Nemotron-Indonesia Omni
 # Instruction tuning on Indonesian tasks
 
 model:
-  name: "./models/nemotron-indonesia-30b-pretrain"  # Continue from pre-trained checkpoint
+  name: "./models/nemotron-indonesia-omni-30b-pretrain"  # Continue from pre-trained checkpoint
   trust_remote_code: true
   torch_dtype: "bfloat16"
 
@@ -11,14 +11,14 @@ data:
     - indommlu
     - nusax
     - custom_instructions
-  max_length: 4096
+  max_length: 8192
   chat_template: true
 
 training:
   mode: "sft"
-  output_dir: "./models/nemotron-indonesia-30b-sft"
+  output_dir: "./models/nemotron-indonesia-omni-30b-sft"
   
-  # Batch configuration (30B)
+  # Batch configuration (Omni 30B-A3B; validate memory before full run)
   per_device_batch_size: 2
   gradient_accumulation_steps: 8
   num_epochs: 3

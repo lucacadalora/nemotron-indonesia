@@ -1,12 +1,35 @@
 {
+  "project": "Nemotron-Indonesia Omni",
+  "base_model": "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+  "pivoted_at": "2026-04-29T17:45:00Z",
+  "training_started": false,
+  "current_phase": "baseline_omni_eval",
   "phases": {
+    "base_model_review": {
+      "status": "done",
+      "progress": 100,
+      "started_at": "2026-04-29T17:27:00Z",
+      "completed_at": "2026-04-29T17:38:00Z"
+    },
+    "repo_pivot_to_omni": {
+      "status": "done",
+      "progress": 100,
+      "started_at": "2026-04-29T17:38:00Z",
+      "completed_at": "2026-04-29T17:45:00Z"
+    },
+    "baseline_omni_eval": {
+      "status": "not_started",
+      "progress": 0,
+      "started_at": null,
+      "completed_at": null
+    },
     "data_prep": {
       "status": "not_started",
       "progress": 0,
       "started_at": null,
       "completed_at": null
     },
-    "pretrain": {
+    "text_pretrain": {
       "status": "not_started",
       "progress": 0,
       "started_at": null,
@@ -18,7 +41,13 @@
       "started_at": null,
       "completed_at": null
     },
-    "dpo": {
+    "multimodal_sft": {
+      "status": "not_started",
+      "progress": 0,
+      "started_at": null,
+      "completed_at": null
+    },
+    "dpo_grpo": {
       "status": "not_started",
       "progress": 0,
       "started_at": null,
@@ -31,7 +60,5 @@
       "completed_at": null
     }
   },
-  "current_phase": null,
-  "last_updated": "2026-04-24T13:36:00Z",
-  "notes": "Project initialized. Ready to start Phase 1: Data Preparation."
+  "notes": "Repo updated to use Nemotron 3 Nano Omni as flagship base before any training. Next step: run upstream Omni baseline eval and vLLM/NeMo smoke tests."
 }

@@ -1,342 +1,209 @@
-# Nemotron-Indonesia
+# Nemotron-Indonesia Omni
 
-**Indonesian sovereign LLM built on NVIDIA Nemotron — agentic AI for Bahasa Indonesia and 10+ local languages.**
+**Sovereign multimodal AI agents for Indonesia, built on NVIDIA Nemotron 3 Nano Omni.**
 
-Inspired by Malaysia's Ilmu-Nemo-30B (YTL AI Labs x NVIDIA, March 2026), this project builds Indonesia's own agentic LLM using NVIDIA's Nemotron architecture. Agentic capabilities include tool use, multi-step reasoning, and function calling — beyond basic chat.
+Nemotron-Indonesia is now oriented around NVIDIA's new **Nemotron 3 Nano Omni 30B-A3B Reasoning** model as the flagship base. The project still keeps a text-benchmark track for IndoMMLU and local-language performance, but the primary product thesis is now bigger: Indonesian enterprise agents that can reason over **text, PDFs, scanned documents, charts, screenshots, audio, video, and tools**.
+
+> Pivot note — 2026-04-29: training has not started, so the repo has been updated before any checkpoint is created.
+
+---
+
+## Base Model Decision
+
+| Track | Role | Base |
+|---|---|---|
+| **Flagship: Omni** | Indonesian multimodal / agentic model | `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` |
+| **Inference variants** | Lower-cost serving tests | FP8 / NVFP4 Omni variants |
+| **Text benchmark fallback** | Pure IndoMMLU / local-language work if Omni underperforms | Nemotron 3 Nano text 30B-A3B family |
+
+Why Omni:
+- 30B-A3B MoE, Mamba/Transformer hybrid.
+- Inputs: text, image, audio, video.
+- Output: text.
+- Up to 256k context.
+- Built for document intelligence, OCR, GUI agents, video/audio reasoning, and tool use.
+- Official NVIDIA cookbooks exist for vLLM, TensorRT-LLM, SGLang, NeMo/Megatron-Bridge, GRPO, and document intelligence.
+
+Important caveat:
+- NVIDIA's model card currently states **English-only language support**. Nemotron-Indonesia must adapt it for Bahasa Indonesia and local languages before claiming Indonesian capability.
 
 ---
 
 ## Goals
 
-1. **Base model**: Continue pre-training `NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16` on rigorous Indonesian corpus
-2. **Agentic capabilities**: Tool use, reasoning, multi-step task execution
-3. **Local languages**: Indonesian, Javanese, Sundanese, Balinese, Minangkabau, Buginese, Acehnese, Banjarese, Ngaju Dayak, Madurese
-4. **Benchmark target**: 55%+ on IndoMMLU (beat Sahabat AI 70B at ~52%, match SEA-LION v3-9B at ~55%)
-5. **Deployment**: API endpoint + NIM microservices for Indonesian enterprises
-
----
-
-## Hardware
-
-- **8x NVIDIA H200** (141GB VRAM each, 1,128 GB total)
-- **DeepSpeed ZeRO-3** for distributed training
-- **NVLink + NVSwitch** interconnect
-- Estimated training time: ~5 days (3 days pre-train + 12h SFT + 6h DPO)
+1. **Build Nemotron-Indonesia Omni 30B-A3B** as Indonesia's first serious sovereign multimodal agent model.
+2. **Beat or match Indonesian text benchmarks**: IndoMMLU target 55%+, NusaX 80%+.
+3. **Support Indonesian enterprise modalities**: PDFs, scanned pages, tables, charts, forms, screenshots, meetings, audio calls, and videos.
+4. **Support 10+ Indonesian languages**: Indonesian, Javanese, Sundanese, Balinese, Minangkabau, Buginese, Acehnese, Banjarese, Ngaju Dayak, Madurese.
+5. **Deploy locally** using NVIDIA inference stack: vLLM / TensorRT-LLM / NIM-compatible serving.
 
 ---
 
 ## Repository Structure
 
-```
+```text
 nemotron-indonesia/
-|-- [PRD.md](PRD.md)                          # Full requirements document
-|-- [DATA_STRATEGY.md](DATA_STRATEGY.md)                # Rigorous data curation strategy
-|-- [train_nemotron_indonesia.py](train_nemotron_indonesia.py)     # Main training pipeline (3 stages)
-|-- [run_training.sh](run_training.sh)                 # Quick start launcher
-|-- [prepare_data.py](prepare_data.py)                 # Dataset curation + quality pipeline
-|-- [multica_sync.py](multica_sync.py)           # 🆕 Sync progress to Multica PM
-|-- [evaluate.py](evaluate.py)                     # IndoMMLU + SEA-HELM benchmarks
-|-- [requirements.txt](requirements.txt)                # Python dependencies
+|-- README.md
+|-- PRD.md                                      # Updated v2 product/technical PRD
+|-- DATA_STRATEGY.md                            # Text benchmark data strategy
+|-- OMNI_DATA_STRATEGY.md                       # Multimodal Indonesian data strategy
+|-- NEMOTRON_3_NANO_OMNI_GITHUB_REVIEW.md       # Source/model/GitHub review
+|-- train_nemotron_indonesia.py                 # Current text-adaptation training scaffold
+|-- run_training.sh                             # Launcher, now defaults to Omni BF16
+|-- prepare_data.py                             # Indonesian text curation pipeline
+|-- evaluate.py                                 # IndoMMLU / SEA-HELM benchmark scaffold
+|-- multica_sync.py                             # Project tracking sync
+|-- START_HERE.sh                               # Setup guide for H200 machine
 |-- configs/
-|   |-- deepspeed_zero3.json        # DeepSpeed ZeRO-3 config
+|   |-- pretrain.yaml                           # Omni-oriented text continued pretrain config
+|   |-- sft.yaml                                # Indonesian SFT config
+|   |-- dpo.yaml                                # Preference alignment config
+|   |-- omni_multimodal_sft.yaml                # New multimodal SFT config scaffold
+|   |-- deepspeed_zero3.json
 |   |-- deepspeed_zero3_gpuonly.json
-|-- data/                           # Training data (generated)
-|-- models/                         # Output checkpoints (generated)
+|-- data/                                       # Generated / mounted training data
+|-- models/                                     # Generated checkpoints
 ```
 
 ---
 
-## Track Progress in Multica
+## Official NVIDIA Sources
 
-You can track Nemotron pipeline progress in your [Multica](https://multica.jatevo.ai) instance:
+- HF BF16: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
+- HF FP8: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+- HF NVFP4: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
+- NVIDIA technical blog: https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasoning-in-a-single-efficient-open-model
+- Main cookbooks: https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3-Nano-Omni
+- Megatron-Bridge example: https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/models/vlm/nemotron_3_omni
+- DataDesigner long-doc recipes: https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/docs/assets/recipes/vlm_long_doc
 
-```bash
-# 1. Setup: Create project + tasks in Multica
-python multica_sync.py --setup \
-    --api-token YOUR_MULTICA_TOKEN \
-    --workspace-id YOUR_WORKSPACE_ID
+---
 
-# 2. Update status when a phase completes
-python multica_sync.py --update-phase data_prep --status done
-python multica_sync.py --update-phase pretrain --status in_progress
+## Hardware / Runtime
 
-# 3. View dashboard
-python multica_sync.py --dashboard
-```
+Target training/inference hardware:
+- **8× NVIDIA H200** preferred for full adaptation.
+- H100 80GB also supported by NVIDIA examples.
+- BF16 weights are ~62GB.
+- vLLM model card requirement: **vLLM 0.20.0**.
+- NeMo/Megatron-Bridge Day-0 base container: `nvcr.io/nvidia/nemo:26.04`.
 
-This creates 5 pipeline phases as tasks in Multica and syncs status as you progress.
-
-**Get your API token:** Multica UI → Settings → API Tokens  
-**Get workspace ID:** From URL `/workspace/WORKSPACE_ID`
+Serving stack:
+- vLLM for OpenAI-compatible testing.
+- TensorRT-LLM / NIM for production optimization.
+- FP8 / NVFP4 for inference experiments.
 
 ---
 
 ## Quick Start
 
-### 1. Environment Setup
+### 1. Environment
 
 ```bash
-conda create -n nemotron-indonesia python=3.10
+conda create -n nemotron-indonesia python=3.10 -y
 conda activate nemotron-indonesia
 pip install -r requirements.txt
 ```
 
-Alternatively, we can use `uv` to prepare the environment.
+For official Omni Day-0 training/conversion flows, use NVIDIA's NeMo 26.04 container and Megatron-Bridge `nemotron_3_omni` branch as documented in the GitHub review.
+
+### 2. Download / Validate Base Model
 
 ```bash
-uv venv nemotron-indonesia --python 3.10
-source nemotron-indonesia/bin/activate
-uv pip install -r requirements.txt
+python - <<'PY'
+from transformers import AutoTokenizer
+model = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
+tok = AutoTokenizer.from_pretrained(model, trust_remote_code=True)
+print("tokenizer ok", len(tok))
+PY
 ```
 
-Error fix when installing `flash-attn` as follows.
-```bash
-sudo apt install python3-dev
-uv pip install torch psutil numpy
-uv pip install flash-attn==2.8.3 --no-build-isolation
-```
-
-### 2. Data Preparation
+### 3. Prepare Indonesian Text Data
 
 ```bash
-# Full pipeline with NER quality filter (recommended for production)
 python prepare_data.py \
-    --output_dir ./data/processed \
-    --datasets oscar cc100 wikipedia \
-    --use_ner_filter \
-    --quality_threshold 0.1
-
-# Quick mode (skip NER, for initial exploration)
-python prepare_data.py \
-    --output_dir ./data/processed \
-    --datasets wikipedia liputan6
+  --output_dir ./data/processed \
+  --datasets oscar cc100 wikipedia sealion \
+  --tokenizer_name nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
+  --use_ner_filter \
+  --quality_threshold 0.1
 ```
 
-**Pipeline phases (all on your server):**
-
-| Phase | What happens | Time |
-|-------|-------------|------|
-| **1. DOWNLOAD** | Fetch from HuggingFace (OSCAR, CC100, Wikipedia, etc.) | ~10-30 min |
-| **2. CLEAN** | Regex filters, length checks, language detection | ~5 min |
-| **3. QUALITY** | Optional: NER entity-density scoring (BERT-based) | ~20 min |
-| **4. PACKAGE** | Deduplication, tokenization, language tags, save | ~10 min |
-
-**The NER filter** (`--use_ner_filter`) uses `cahya/bert-base-indonesian-NER` to score
-documents by entity density. Documents rich in people, organizations, and locations
-(like news, Wikipedia) score higher. Entity-sparse documents (spam, noise) are filtered out.
-
-See [DATA_STRATEGY.md](DATA_STRATEGY.md) for the full rigorous pipeline including:
-- Multi-signal quality scoring (perplexity, toxicity, readability, **NER entity density**)
-- 3-level deduplication (exact + MinHash LSH + fuzzy simhash)
-- Benchmark decontamination (13-gram Bloom filter against IndoMMLU/NusaX test sets)
-- Curriculum learning (easy to medium to hard)
-
-### 3. Training (3 Stages)
+### 4. Text Adaptation Scaffold
 
 ```bash
-# Stage 1: Continued pre-training (~3 days)
 ./run_training.sh pretrain
-
-# Stage 2: Supervised fine-tuning (~12 hours)
 ./run_training.sh sft
-
-# Stage 3: DPO alignment (~6 hours)
 ./run_training.sh dpo
 ```
 
-Or manually with DeepSpeed:
+Current launcher defaults to the Omni BF16 model ID. The current Python trainer is still a text-adaptation scaffold; full multimodal training should follow NVIDIA's Megatron-Bridge/NeMo Omni examples.
+
+### 5. Evaluation
 
 ```bash
-torchrun --nnodes=1 --nproc_per_node=8 train_nemotron_indonesia.py \
-    --mode pretrain \
-    --model_name nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16 \
-    --data_path ./data/processed \
-    --output_dir ./models/nemotron-indonesia-30b \
-    --batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --learning_rate 1.5e-5 \
-    --num_epochs 1 \
-    --bf16 \
-    --gradient_checkpointing \
-    --deepspeed ./configs/deepspeed_zero3.json
-```
-
-### 4. Evaluation
-
-```bash
-# IndoMMLU (primary benchmark)
 python evaluate.py \
-    --model_path ./models/nemotron-indonesia-30b \
-    --benchmark indommlu \
-    --output results_indommlu.json
-
-# SEA-HELM / BHASA (SEA multilingual benchmark)
-python evaluate.py \
-    --model_path ./models/nemotron-indonesia-30b \
-    --benchmark sea-helm \
-    --output results_seahelm.json
+  --model_path ./models/nemotron-indonesia-omni-30b-dpo \
+  --benchmark indommlu \
+  --output results_indommlu.json
 ```
 
 ---
 
-## Training Configurations
+## Training Roadmap
 
-### Stage 1: Continued Pre-training (30B → 30B-Indonesia)
-
-| Parameter | Value |
-|-----------|-------|
-| Base model | NVIDIA-Nemotron-3-Nano-30B-A3B-Base-BF16 |
-| Data | 20B tokens (rigorous mix, see DATA_STRATEGY.md) |
-| Batch size | 128 effective (2 per GPU x 8 GPUs x grad accum 8) |
-| Learning rate | 1.5e-5 (cosine schedule) |
-| Epochs | 1 |
-| Time | ~3 days |
-| Memory per GPU | ~100GB (DeepSpeed ZeRO-3) |
-
-### Stage 2: Supervised Fine-tuning
-
-| Parameter | Value |
-|-----------|-------|
-| Data | 500K instruction pairs (IndoMMLU train + synthetic textbooks + custom) |
-| Batch size | 128 effective |
-| Learning rate | 3e-6 |
-| Epochs | 3 |
-| Time | ~12 hours |
-
-### Stage 3: DPO Alignment
-
-| Parameter | Value |
-|-----------|-------|
-| Data | 50K preference pairs |
-| Learning rate | 5e-7 |
-| Beta | 0.1 |
-| Epochs | 1 |
-| Time | ~6 hours |
-
----
-
-## Rigorous Data Strategy
-
-See [DATA_STRATEGY.md](DATA_STRATEGY.md) for the complete strategy. Key differentiators from Sahabat AI:
-
-| Rigorous Step | Sahabat AI | Nemotron-Indonesia |
-|--------------|-----------|-------------------|
-| Benchmark decontamination | Unknown | 13-gram Bloom filter removal |
-| Quality scoring | Basic | 6-signal composite score |
-| Deduplication | Single-pass | 3-level (exact + LSH + fuzzy) |
-| Educational content | ~2% | 25%+ (BSE textbooks, academic papers) |
-| Curriculum learning | No | Easy to medium to hard sorting |
-| Synthetic data | None | 100K textbook Q&A from BSE |
-
-### Pre-training Corpus (20B Tokens)
-
-| Source | Tokens | % | Quality | Purpose |
-|--------|--------|---|---------|---------|
-| Indonesian Wikipedia | 2.0B | 10% | A+ | Structured knowledge |
-| Indonesian Academic Corpus | 2.5B | 12.5% | A+ | STEM, textbooks, papers |
-| OSCAR (filtered) | 5.0B | 25% | B+ | Broad web coverage |
-| CC100 Indonesian (filtered) | 3.0B | 15% | B+ | Web diversity |
-| SEA-LION Pile - Indonesian | 1.0B | 5% | A | AI Singapore curated |
-| Liputan6 + ID News | 2.0B | 10% | A | Formal news, social science |
-| Kaskus (heavily filtered) | 1.0B | 5% | C+ | Informal Indonesian |
-| Indonesian Government Docs | 1.5B | 7.5% | A | Legal, civics, policy |
-| Religious Texts (ID) | 0.5B | 2.5% | A | Cultural literacy |
-| Javanese/Sundanese/Balinese | 1.5B | 7.5% | B | Local language coverage |
-| English Academic (STEM) | 1.0B | 5% | A+ | STEM concept transfer |
-| **TOTAL** | **20.0B** | **100%** | | |
-
-### Fine-tuning Data (500K Pairs)
-
-| Source | Pairs | Type |
-|--------|-------|------|
-| IndoMMLU train split | 50K | Academic Q&A |
-| Synthetic BSE textbooks | 100K | Curriculum-aligned Q&A |
-| NusaX sentiment + NLI | 30K | Classification |
-| Translated Flan/CoT | 150K | Reasoning tasks |
-| Government FAQ | 50K | Civic, legal, admin |
-| Custom agentic instructions | 120K | Tool use, multi-step |
+| Phase | Purpose | Output |
+|---|---|---|
+| 0. Baseline smoke tests | Check upstream Omni on Indonesian text, docs, OCR, audio, screenshots | Go/no-go report |
+| 1. Indonesian text adaptation | Improve Bahasa + local-language text reasoning | `nemotron-indonesia-omni-30b-pretrain` |
+| 2. Indonesian SFT | IndoMMLU, NusaX, government/enterprise tasks | `nemotron-indonesia-omni-30b-sft` |
+| 3. Multimodal SFT | Indonesian docs, scans, charts, tables, audio/video QA | `nemotron-indonesia-omni-30b-mm-sft` |
+| 4. Preference / GRPO | Tool use, reliability, doc grounding, refusal behavior | `nemotron-indonesia-omni-30b-final` |
+| 5. Deployment | vLLM / TensorRT-LLM / NIM endpoint | Enterprise API + demos |
 
 ---
 
 ## Benchmarks
 
-### Primary: IndoMMLU
+### Text / Language
 
-| Model | Size | Accuracy |
-|-------|------|----------|
-| Sahabat AI 8B | 8B | ~45% |
-| Sahabat AI 70B | 70B | ~52% |
-| SEA-LION v3-9B | 9B | ~55% |
-| GPT-4 (zero-shot) | - | ~55% |
-| **Nemotron-Indonesia 30B** | **30B** | **Target: 55%+** |
+| Benchmark | Target |
+|---|---:|
+| IndoMMLU | 55%+ |
+| NusaX sentiment / local languages | 80%+ |
+| IndoNLI | 75%+ |
+| IndoSum | ROUGE-L 35+ |
 
-### Secondary
+### Omni / Enterprise
 
-- **SEA-HELM / BHASA**: SEA multilingual benchmark (target: competitive with SEA-LION)
-- **NusaX Sentiment**: 12 local languages (target: 80%+)
-- **IndoNLI**: Natural language inference (target: 75%+)
-- **IndoSum**: Summarization (target: ROUGE-L 35+)
-- **Custom Agentic Eval**: Tool use, multi-step reasoning
-
----
-
-## Competitive Analysis
-
-| Attribute | Sahabat AI | SEA-LION | Ilmu-Nemo | Nemotron-Indonesia |
-|-----------|-----------|----------|-----------|-------------------|
-| Base Model | Llama 3 / Gemma | MPT/Llama/Gemma | Nemotron 30B | **Nemotron 30B** |
-| Size | 8B, 70B | 3B-9B | 30B | **30B** |
-| Focus | General chat | SEA multilingual | Agentic AI | **Agentic AI** |
-| Indonesia-Specific | Yes | Partial | No | **Yes** |
-| Local Languages | 5 | 11 | Malay + EN | **10+** |
-| Agentic Tools | No | No | Yes | **Yes** |
-| Gov Backing | Private (GoTo) | Singapore Gov (NRF) | Private (YTL) | **Jatevo + partners** |
-| Commercial License | Open source | MIT/Open | Open source | **Open source** |
-| Inference Stack | Standard | Standard | NVIDIA NIM | **NVIDIA NIM** |
-
-### Collaboration Opportunities
-
-- **AI Singapore**: Proven collaborator (co-built Sahabat AI v1/v2). SEA-LION Pile dataset is open source. Potential three-way partnership: NVIDIA + AI Singapore + Jatevo.
-- **SEA-LION Leaderboard**: Submit Nemotron-Indonesia for official ranking alongside SEA-LION models.
-- **IndoNLP Community**: Leverage NusaX, IndoNLI, IndoSum benchmarks and datasets.
+| Benchmark | Target |
+|---|---:|
+| Indonesian scanned document QA | 85%+ answer accuracy |
+| Indonesian table/chart extraction | 90%+ field accuracy |
+| Bahasa audio transcription QA | 85%+ semantic accuracy |
+| Screenshot / UI reasoning | 80%+ task-state accuracy |
+| Tool-call correctness | 90%+ valid JSON/tool schema |
 
 ---
 
-## Cost Analysis (Owned Hardware)
+## Competitive Positioning
 
-| Stage | Cloud Equivalent | Your Cost (Electricity) |
-|-------|-----------------|------------------------|
-| Data preparation | ~$500 | ~$10 |
-| Pre-training (3 days) | ~$5,000 | ~$30 |
-| SFT (12 hours) | ~$1,000 | ~$5 |
-| DPO (6 hours) | ~$500 | ~$3 |
-| **Total** | **~$7,000** | **~$50** |
-
----
-
-## References
-
-- [Ilmu-Nemo-30B (Malaysia)](https://theleaders-online.com/ytl-ai-labs-teams-up-with-nvidia-to-launch-ilmu%e2%80%91nemo%e2%80%9130b)
-- [Sahabat AI (Indonesia)](https://sahabat-ai.com/)
-- [SEA-LION (AI Singapore)](https://huggingface.co/collections/aisingapore/sea-lionv3-672589a39cdadd6a5b199581)
-- [NVIDIA Nemotron](https://developer.nvidia.com/nemotron)
-- [Awesome Indonesian LLM Dataset](https://github.com/irfanfadhullah/awesome-indonesia-llm-dataset)
-- [IndoMMLU Paper](https://arxiv.org/abs/2310.04928)
+| Attribute | Sahabat AI | SEA-LION | Ilmu-Nemo | Nemotron-Indonesia Omni |
+|---|---|---|---|---|
+| Base | Llama / Gemma | MPT/Llama/Gemma | Nemotron text | **Nemotron 3 Nano Omni** |
+| Primary mode | Chat | SEA multilingual | Agentic text | **Multimodal agents** |
+| Modalities | Text | Text | Text | **Text + image + audio + video** |
+| Indonesia-specific | Yes | Partial | No | **Yes** |
+| Local languages | Limited | SEA-wide | Malay + EN | **10+ target** |
+| Enterprise docs/OCR | No | Limited | Limited | **Core use case** |
+| Sovereign deploy | Possible | Possible | NVIDIA stack | **NVIDIA local stack** |
 
 ---
 
-## License
+## License Note
 
-Apache 2.0 — Open for commercial use.
-
-## Acknowledgments
-
-- YTL AI Labs and NVIDIA for the Ilmu-Nemo inspiration
-- Indosat and GoTo for Sahabat AI benchmark
-- AI Singapore for SEA-LION Pile dataset and BHASA benchmark
-- IndoNLP community for datasets and evaluation frameworks
-- Jatevo for compute infrastructure
+The training code and recipes in this repo can be released openly by Jatevo, but the base model is governed by the **NVIDIA Open Model Agreement**, not Apache 2.0. Final model release terms must be reviewed against NVIDIA's agreement before public distribution.
 
 ---
 
-Built for Indonesia's AI sovereignty.
+Built for Indonesia's AI sovereignty — now multimodal.

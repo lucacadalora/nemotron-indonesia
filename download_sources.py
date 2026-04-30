@@ -141,12 +141,21 @@ CORE_SOURCES = [
     "indobert",
 ]
 
+FIRST_MILESTONE_SOURCES = [
+    "indo4b_hf",
+    "wikipedia_id",
+    "indonlu",
+    "indobert",
+]
+
 
 def expand_sources(names: List[str]) -> List[str]:
     expanded: List[str] = []
     for name in names:
         if name == "core":
             expanded.extend(CORE_SOURCES)
+        elif name in ("first_milestone", "smoke"):
+            expanded.extend(FIRST_MILESTONE_SOURCES)
         elif name == "all":
             expanded.extend(SOURCES.keys())
         else:
@@ -216,8 +225,13 @@ def download_direct(name: str, src: dict, root: Path, dry_run: bool) -> None:
     print_source(name, src)
     urls = src.get("urls", [src["url"]])
     if dry_run:
-        for url in urls:
-            print(f"  command: curl -L -C - --fail -O {url}")
+        if src["kind"] == "direct":
+            dry_paths = [root / src["target"]]
+        else:
+            dry_dir = root / src["target"]
+            dry_paths = [dry_dir / Path(url).name for url in urls]
+        for url, out_path in zip(urls, dry_paths):
+            print(f"  command: mkdir -p {out_path.parent} && curl -L -C - --fail --output {out_path} {url}")
         return
     target = root / src["target"]
     if src["kind"] == "direct":
@@ -241,6 +255,9 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.list:
+        print("Aliases:")
+        print("  first_milestone / smoke -> " + ", ".join(FIRST_MILESTONE_SOURCES))
+        print("  core -> " + ", ".join(CORE_SOURCES))
         for name, src in SOURCES.items():
             print_source(name, src)
         return 0

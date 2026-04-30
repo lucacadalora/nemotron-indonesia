@@ -225,9 +225,11 @@ huggingface-cli download indobenchmark/indobert-base-p1 \
 This keeps the first run small enough to debug:
 
 ```bash
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert --dry-run
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert
+python download_sources.py --sources first_milestone --dry-run
+python download_sources.py --sources first_milestone
 ```
+
+`first_milestone` expands to: `indo4b_hf`, `wikipedia_id`, `indonlu`, `indobert`.
 
 Then validate:
 

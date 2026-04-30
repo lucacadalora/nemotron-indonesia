@@ -8,6 +8,25 @@ No client-specific project references, private project-management integrations, 
 
 ---
 
+## Start Here for the Training Operator
+
+If you are setting up the training machine, start with the operator runbook:
+
+- [`OPERATOR_RUNBOOK.md`](OPERATOR_RUNBOOK.md)
+
+Minimal flow:
+
+```bash
+git clone https://github.com/lucacadalora/nemotron-indonesia.git
+cd nemotron-indonesia
+bash START_HERE.sh
+python download_sources.py --sources first_milestone
+```
+
+`first_milestone` pulls only the initial sources needed to validate the pipeline: Indo4B HF mirror, Indonesian Wikipedia, IndoNLU, and IndoBERT.
+
+---
+
 ## Base Model
 
 | Track | Role | Base |
@@ -85,8 +104,8 @@ python download_sources.py --sources core
 Small first pull for pipeline validation:
 
 ```bash
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert --dry-run
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert
+python download_sources.py --sources first_milestone --dry-run
+python download_sources.py --sources first_milestone
 ```
 
 Optional CulturaX Indonesian pull after accepting Hugging Face terms:

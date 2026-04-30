@@ -74,9 +74,11 @@ Processing steps:
 Recommended first run:
 
 ```bash
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert --dry-run
-python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert
+python download_sources.py --sources first_milestone --dry-run
+python download_sources.py --sources first_milestone
 ```
+
+`first_milestone` expands to `indo4b_hf`, `wikipedia_id`, `indonlu`, and `indobert`.
 
 Recommended full corpus pull:
 
@@ -207,7 +209,7 @@ Use IndoNLU for:
 The first useful milestone is not a full 20B-token run. It is a small, reproducible proof:
 
 ```text
-Data: Indo4B HF mirror + Wikipedia ID + IndoNLU eval + IndoBERT baseline
+Data: first_milestone bundle (Indo4B HF mirror + Wikipedia ID + IndoNLU + IndoBERT)
 Run: small CPT smoke test
 Eval: upstream Nemotron vs CPT checkpoint on IndoNLU/custom Bahasa prompts
 Output: scorecard + sample generations + next-run recommendation

@@ -1,64 +1,83 @@
 #!/bin/bash
-# COMPLETE STARTER GUIDE - Nemotron-Indonesia 30B
-# Run this on your 8x H200 machine
+# Nemotron-Indonesia setup checker.
+# Run from the cloned repository: bash START_HERE.sh
 
-set -e
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_DIR"
+
+ENV_NAME="nemotron-indonesia"
+MODEL_NAME="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
 
 echo "=========================================="
-echo "Nemotron-Indonesia Omni 30B-A3B - Setup & Run"
+echo "Nemotron-Indonesia Omni 30B-A3B - Setup Check"
 echo "=========================================="
+echo "Repo: $REPO_DIR"
+echo ""
 
-# 1. CREATE PROJECT DIRECTORY
-mkdir -p ~/nemotron-indonesia
-cd ~/nemotron-indonesia
+if ! command -v conda >/dev/null 2>&1; then
+  echo "ERROR: conda is not installed or not on PATH."
+  echo "Install Miniconda/Mambaforge first, then rerun this script."
+  exit 1
+fi
 
-# 2. CREATE CONDA ENVIRONMENT
-echo "Creating conda environment..."
-conda create -n nemotron python=3.10 -y || true
-source $(conda info --base)/etc/profile.d/conda.sh
-conda activate nemotron
+if command -v nvidia-smi >/dev/null 2>&1; then
+  echo "GPU Status:"
+  nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv || true
+else
+  echo "WARNING: nvidia-smi not found. GPU driver/CUDA setup may be incomplete."
+fi
 
-# 3. INSTALL DEPENDENCIES
-echo "Installing dependencies..."
+echo ""
+echo "Disk Status:"
+df -h .
+
+echo ""
+echo "Creating/activating conda environment: $ENV_NAME"
+conda create -n "$ENV_NAME" python=3.10 -y || true
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$ENV_NAME"
+
+echo ""
+echo "Installing Python dependencies..."
 pip install --upgrade pip
 pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
-pip install transformers==4.46.2 datasets==3.2.0 accelerate==1.2.1
-pip install peft==0.14.0 deepspeed==0.16.2 bitsandbytes==0.45.3
-pip install sentencepiece protobuf scipy scikit-learn tqdm tensorboard
+pip install -r requirements.txt
 
-# Flash Attention 2 (optional but recommended for H200)
-echo "Installing Flash Attention 2..."
-pip install flash-attn --no-build-isolation || echo "Flash Attention install failed, continuing without it"
-
-# 4. VERIFY GPUs
+# Flash Attention is useful but should not block the first workflow check.
 echo ""
-echo "GPU Status:"
-nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv
+echo "Installing Flash Attention 2 if compatible..."
+pip install flash-attn --no-build-isolation || echo "Flash Attention install failed; continuing without it."
 
-# 5. DOWNLOAD BASE MODEL (30B)
 echo ""
-echo "Validating Nemotron-3-Nano-Omni-30B-A3B tokenizer..."
-python -c "
-from transformers import AutoModelForCausalLM, AutoTokenizer
-model_name = 'nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16'
-print('Downloading tokenizer...')
+echo "Checking Python files..."
+python -m py_compile download_sources.py prepare_data.py train_nemotron_indonesia.py evaluate.py
+
+echo ""
+echo "Validating Nemotron tokenizer..."
+python - <<PY
+from transformers import AutoTokenizer
+model_name = "$MODEL_NAME"
+print("loading tokenizer:", model_name)
 tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-print('Tokenizer downloaded')
-print('Model weights will download during first training/eval run; BF16 weights are ~62GB')
-"
+print("tokenizer ok")
+print("vocab size:", len(tokenizer))
+PY
+
+echo ""
+echo "Checking first-milestone source links..."
+python download_sources.py --sources first_milestone --verify-links --dry-run
 
 echo ""
 echo "=========================================="
-echo "SETUP COMPLETE"
+echo "SETUP CHECK COMPLETE"
 echo "=========================================="
 echo ""
-echo "Next steps:"
-echo "1. Review architecture: ARCHITECTURE.md"
-echo "2. Check sources: python download_sources.py --sources core --dry-run"
-echo "3. Pull first data: python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert"
-echo "4. Prepare data: python prepare_data.py --datasets indo4b_hf wikipedia cc100 seapile"
-echo "5. Start training: ./run_training.sh pretrain"
-echo ""
-echo "To activate environment later:"
-echo "  conda activate nemotron"
+echo "Next commands:"
+echo "1. Read workflow:           less OPERATOR_RUNBOOK.md"
+echo "2. Pull first data:         python download_sources.py --sources first_milestone"
+echo "3. Prepare first corpus:    python prepare_data.py --datasets indo4b_hf wikipedia"
+echo "4. Run baseline eval:       python evaluate.py --model_path $MODEL_NAME --benchmark indonlu --output results/upstream_indonlu.json"
+echo "5. Start smoke training:    ./run_training.sh pretrain"
 echo ""

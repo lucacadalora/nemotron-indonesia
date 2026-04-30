@@ -1,41 +1,113 @@
 # Nemotron-Indonesia Omni
 
-**Sovereign multimodal AI agents for Indonesia, built on NVIDIA Nemotron 3 Nano Omni.**
+**Indonesian multimodal/agentic AI model adaptation built on NVIDIA Nemotron 3 Nano Omni.**
 
-Nemotron-Indonesia is now oriented around NVIDIA's new **Nemotron 3 Nano Omni 30B-A3B Reasoning** model as the flagship base. The project still keeps a text-benchmark track for IndoMMLU and local-language performance, but the primary product thesis is now bigger: Indonesian enterprise agents that can reason over **text, PDFs, scanned documents, charts, screenshots, audio, video, and tools**.
+This repository contains the public training architecture, data-source manifest, and scaffolding for adapting `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` for Bahasa Indonesia and Indonesian enterprise-style tasks.
 
-> Pivot note — 2026-04-29: training has not started, so the repo has been updated before any checkpoint is created.
+No client-specific project references, private project-management integrations, or production credentials belong in this repository.
 
 ---
 
-## Base Model Decision
+## Base Model
 
 | Track | Role | Base |
 |---|---|---|
-| **Flagship: Omni** | Indonesian multimodal / agentic model | `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` |
-| **Inference variants** | Lower-cost serving tests | FP8 / NVFP4 Omni variants |
-| **Text benchmark fallback** | Pure IndoMMLU / local-language work if Omni underperforms | Nemotron 3 Nano text 30B-A3B family |
+| Flagship | Indonesian multimodal / agentic model | `nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16` |
+| Inference variants | Lower-cost serving tests | FP8 / NVFP4 Omni variants |
+| Text fallback | Pure language benchmark experiments | Nemotron 3 Nano text 30B-A3B family |
 
-Why Omni:
-- 30B-A3B MoE, Mamba/Transformer hybrid.
-- Inputs: text, image, audio, video.
-- Output: text.
-- Up to 256k context.
-- Built for document intelligence, OCR, GUI agents, video/audio reasoning, and tool use.
-- Official NVIDIA cookbooks exist for vLLM, TensorRT-LLM, SGLang, NeMo/Megatron-Bridge, GRPO, and document intelligence.
+Official NVIDIA sources:
 
-Important caveat:
-- NVIDIA's model card currently states **English-only language support**. Nemotron-Indonesia must adapt it for Bahasa Indonesia and local languages before claiming Indonesian capability.
+- BF16 model: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
+- FP8 model: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+- NVFP4 model: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
+- NVIDIA blog: https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasoning-in-a-single-efficient-open-model
+- Nemotron cookbooks: https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3-Nano-Omni
+- Megatron-Bridge Omni example: https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/models/vlm/nemotron_3_omni
+
+Important caveat: NVIDIA's upstream model card states English-only language support. This project exists to adapt and evaluate Indonesian capability.
 
 ---
 
-## Goals
+## Concrete Architecture
 
-1. **Build Nemotron-Indonesia Omni 30B-A3B** as Indonesia's first serious sovereign multimodal agent model.
-2. **Beat or match Indonesian text benchmarks**: IndoMMLU target 55%+, NusaX 80%+.
-3. **Support Indonesian enterprise modalities**: PDFs, scanned pages, tables, charts, forms, screenshots, meetings, audio calls, and videos.
-4. **Support 10+ Indonesian languages**: Indonesian, Javanese, Sundanese, Balinese, Minangkabau, Buginese, Acehnese, Banjarese, Ngaju Dayak, Madurese.
-5. **Deploy locally** using NVIDIA inference stack: vLLM / TensorRT-LLM / NIM-compatible serving.
+Read the full architecture here:
+
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+
+Short version:
+
+```text
+Indo4B / SEA-PILE ID / mC4 ID / CC100 ID / Wikipedia ID
+        ↓
+cleaning + language filtering + dedupe + PII removal + benchmark decontamination
+        ↓
+continued pretraining / domain adaptation
+        ↓
+Nemotron-Indonesia base
+        ↓
+Bahasa + enterprise SFT + multimodal SFT
+        ↓
+alignment / preference tuning
+        ↓
+IndoNLU + NusaX + IndoBERT baseline + custom enterprise benchmark
+```
+
+---
+
+## Data Sources and Download Links
+
+Read the source manifest here:
+
+- [`DATASET_MANIFEST.md`](DATASET_MANIFEST.md)
+
+The repo does **not** depend on manually gated OSCAR. Core pull list:
+
+| Key | Source | Link |
+|---|---|---|
+| `indo4b_hf` | Indo4B HF parquet mirror | https://huggingface.co/datasets/taufiqdp/Indo4B-hf |
+| `sea_pile_id` | SEA-PILE Indonesian subset | https://huggingface.co/datasets/aisingapore/SEA-PILE-v1 |
+| `mc4_id` | mC4 Indonesian | https://huggingface.co/datasets/allenai/c4 |
+| `cc100_id` | CC100 Indonesian | https://data.statmt.org/cc-100/id.txt.xz |
+| `wikipedia_id` | Indonesian Wikipedia | https://huggingface.co/datasets/wikimedia/wikipedia |
+| `indonlu` | IndoNLU benchmark | https://huggingface.co/datasets/indonlp/indonlu |
+| `nusax_senti` | NusaX sentiment benchmark | https://huggingface.co/datasets/indonlp/NusaX-senti |
+| `indobert` | IndoBERT baseline model | https://huggingface.co/indobenchmark/indobert-base-p1 |
+
+Download helper:
+
+```bash
+python download_sources.py --list
+python download_sources.py --sources core --dry-run
+python download_sources.py --sources core
+```
+
+Small first pull for pipeline validation:
+
+```bash
+python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert --dry-run
+python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert
+```
+
+Optional CulturaX Indonesian pull after accepting Hugging Face terms:
+
+```bash
+HF_TOKEN=hf_xxx python download_sources.py --sources culturax_id
+```
+
+---
+
+## IndoBERT and IndoNLU Usage
+
+IndoBERT and IndoNLU are important, but not as a base model replacement.
+
+| Asset | Role in this project |
+|---|---|
+| IndoBERT | baseline/reference model, quality-filter helper, comparison point |
+| IndoNLU | benchmark/evaluation suite and small supervised seed from non-test splits |
+| Indo4B | larger Indonesian text corpus suitable for continued pretraining |
+
+Rule: use IndoNLU for evaluation and decontamination. Do not leak benchmark test examples into training.
 
 ---
 
@@ -44,21 +116,23 @@ Important caveat:
 ```text
 nemotron-indonesia/
 |-- README.md
-|-- PRD.md                                      # Updated v2 product/technical PRD
-|-- DATA_STRATEGY.md                            # Text benchmark data strategy
-|-- OMNI_DATA_STRATEGY.md                       # Multimodal Indonesian data strategy
+|-- ARCHITECTURE.md                             # Concrete public architecture
+|-- DATASET_MANIFEST.md                         # Working source links + download commands
+|-- PRD.md                                      # Product/technical PRD
+|-- DATA_STRATEGY.md                            # Text data strategy
+|-- OMNI_DATA_STRATEGY.md                       # Multimodal data strategy
 |-- NEMOTRON_3_NANO_OMNI_GITHUB_REVIEW.md       # Source/model/GitHub review
-|-- train_nemotron_indonesia.py                 # Current text-adaptation training scaffold
-|-- run_training.sh                             # Launcher, now defaults to Omni BF16
-|-- prepare_data.py                             # Indonesian text curation pipeline
-|-- evaluate.py                                 # IndoMMLU / SEA-HELM benchmark scaffold
-|-- multica_sync.py                             # Project tracking sync
+|-- download_sources.py                         # One-command data/model pull helper
+|-- prepare_data.py                             # Indonesian text curation pipeline scaffold
+|-- train_nemotron_indonesia.py                 # Text-adaptation training scaffold
+|-- run_training.sh                             # Launcher, defaults to Omni BF16
+|-- evaluate.py                                 # Benchmark scaffold
 |-- START_HERE.sh                               # Setup guide for H200 machine
 |-- configs/
-|   |-- pretrain.yaml                           # Omni-oriented text continued pretrain config
-|   |-- sft.yaml                                # Indonesian SFT config
-|   |-- dpo.yaml                                # Preference alignment config
-|   |-- omni_multimodal_sft.yaml                # New multimodal SFT config scaffold
+|   |-- pretrain.yaml
+|   |-- sft.yaml
+|   |-- dpo.yaml
+|   |-- omni_multimodal_sft.yaml
 |   |-- deepspeed_zero3.json
 |   |-- deepspeed_zero3_gpuonly.json
 |-- data/                                       # Generated / mounted training data
@@ -67,31 +141,21 @@ nemotron-indonesia/
 
 ---
 
-## Official NVIDIA Sources
-
-- HF BF16: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16
-- HF FP8: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
-- HF NVFP4: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
-- NVIDIA technical blog: https://developer.nvidia.com/blog/nvidia-nemotron-3-nano-omni-powers-multimodal-agent-reasoning-in-a-single-efficient-open-model
-- Main cookbooks: https://github.com/NVIDIA-NeMo/Nemotron/tree/main/usage-cookbook/Nemotron-3-Nano-Omni
-- Megatron-Bridge example: https://github.com/NVIDIA-NeMo/Megatron-Bridge/tree/main/examples/models/vlm/nemotron_3_omni
-- DataDesigner long-doc recipes: https://github.com/NVIDIA-NeMo/DataDesigner/tree/main/docs/assets/recipes/vlm_long_doc
-
----
-
 ## Hardware / Runtime
 
 Target training/inference hardware:
-- **8× NVIDIA H200** preferred for full adaptation.
-- H100 80GB also supported by NVIDIA examples.
-- BF16 weights are ~62GB.
-- vLLM model card requirement: **vLLM 0.20.0**.
+
+- 8× NVIDIA H200 preferred for full adaptation.
+- H100 80GB is also viable for smaller experiments.
+- BF16 weights are roughly 62GB.
+- Upstream model card requirement for vLLM: `vLLM 0.20.0`.
 - NeMo/Megatron-Bridge Day-0 base container: `nvcr.io/nvidia/nemo:26.04`.
 
 Serving stack:
+
 - vLLM for OpenAI-compatible testing.
-- TensorRT-LLM / NIM for production optimization.
-- FP8 / NVFP4 for inference experiments.
+- TensorRT-LLM / NIM-compatible serving for optimized deployment.
+- FP8 / NVFP4 variants for inference experiments.
 
 ---
 
@@ -105,9 +169,7 @@ conda activate nemotron-indonesia
 pip install -r requirements.txt
 ```
 
-For official Omni Day-0 training/conversion flows, use NVIDIA's NeMo 26.04 container and Megatron-Bridge `nemotron_3_omni` branch as documented in the GitHub review.
-
-### 2. Download / Validate Base Model
+### 2. Validate base tokenizer
 
 ```bash
 python - <<'PY'
@@ -118,18 +180,25 @@ print("tokenizer ok", len(tok))
 PY
 ```
 
-### 3. Prepare Indonesian Text Data
+### 3. Pull first data sources
+
+```bash
+python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert --dry-run
+python download_sources.py --sources indo4b_hf wikipedia_id indonlu indobert
+```
+
+### 4. Prepare Indonesian text data
 
 ```bash
 python prepare_data.py \
   --output_dir ./data/processed \
-  --datasets oscar cc100 wikipedia sealion \
+  --datasets indo4b_hf wikipedia cc100 seapile \
   --tokenizer_name nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
   --use_ner_filter \
   --quality_threshold 0.1
 ```
 
-### 4. Text Adaptation Scaffold
+### 5. Training scaffold
 
 ```bash
 ./run_training.sh pretrain
@@ -137,15 +206,15 @@ python prepare_data.py \
 ./run_training.sh dpo
 ```
 
-Current launcher defaults to the Omni BF16 model ID. The current Python trainer is still a text-adaptation scaffold; full multimodal training should follow NVIDIA's Megatron-Bridge/NeMo Omni examples.
+The current Python trainer is a text-adaptation scaffold. Full multimodal training should follow NVIDIA's NeMo/Megatron-Bridge Omni examples.
 
-### 5. Evaluation
+### 6. Evaluation
 
 ```bash
 python evaluate.py \
   --model_path ./models/nemotron-indonesia-omni-30b-dpo \
-  --benchmark indommlu \
-  --output results_indommlu.json
+  --benchmark indonlu \
+  --output results_indonlu.json
 ```
 
 ---
@@ -154,55 +223,18 @@ python evaluate.py \
 
 | Phase | Purpose | Output |
 |---|---|---|
-| 0. Baseline smoke tests | Check upstream Omni on Indonesian text, docs, OCR, audio, screenshots | Go/no-go report |
-| 1. Indonesian text adaptation | Improve Bahasa + local-language text reasoning | `nemotron-indonesia-omni-30b-pretrain` |
-| 2. Indonesian SFT | IndoMMLU, NusaX, government/enterprise tasks | `nemotron-indonesia-omni-30b-sft` |
-| 3. Multimodal SFT | Indonesian docs, scans, charts, tables, audio/video QA | `nemotron-indonesia-omni-30b-mm-sft` |
-| 4. Preference / GRPO | Tool use, reliability, doc grounding, refusal behavior | `nemotron-indonesia-omni-30b-final` |
-| 5. Deployment | vLLM / TensorRT-LLM / NIM endpoint | Enterprise API + demos |
-
----
-
-## Benchmarks
-
-### Text / Language
-
-| Benchmark | Target |
-|---|---:|
-| IndoMMLU | 55%+ |
-| NusaX sentiment / local languages | 80%+ |
-| IndoNLI | 75%+ |
-| IndoSum | ROUGE-L 35+ |
-
-### Omni / Enterprise
-
-| Benchmark | Target |
-|---|---:|
-| Indonesian scanned document QA | 85%+ answer accuracy |
-| Indonesian table/chart extraction | 90%+ field accuracy |
-| Bahasa audio transcription QA | 85%+ semantic accuracy |
-| Screenshot / UI reasoning | 80%+ task-state accuracy |
-| Tool-call correctness | 90%+ valid JSON/tool schema |
-
----
-
-## Competitive Positioning
-
-| Attribute | Sahabat AI | SEA-LION | Ilmu-Nemo | Nemotron-Indonesia Omni |
-|---|---|---|---|---|
-| Base | Llama / Gemma | MPT/Llama/Gemma | Nemotron text | **Nemotron 3 Nano Omni** |
-| Primary mode | Chat | SEA multilingual | Agentic text | **Multimodal agents** |
-| Modalities | Text | Text | Text | **Text + image + audio + video** |
-| Indonesia-specific | Yes | Partial | No | **Yes** |
-| Local languages | Limited | SEA-wide | Malay + EN | **10+ target** |
-| Enterprise docs/OCR | No | Limited | Limited | **Core use case** |
-| Sovereign deploy | Possible | Possible | NVIDIA stack | **NVIDIA local stack** |
+| 0. Baseline smoke tests | Check upstream Omni on Indonesian text, docs, OCR, audio, screenshots | go/no-go report |
+| 1. Indonesian text adaptation | Improve Bahasa + local-language text reasoning | CPT checkpoint |
+| 2. Indonesian SFT | Assistant behavior, reasoning, enterprise workflows | SFT checkpoint |
+| 3. Multimodal SFT | Indonesian docs, scans, charts, tables, audio/video QA | MM-SFT checkpoint |
+| 4. Preference / GRPO | Tool use, reliability, doc grounding, refusal behavior | final aligned checkpoint |
+| 5. Deployment | vLLM / TensorRT-LLM / NIM endpoint | local API + demos |
 
 ---
 
 ## License Note
 
-The training code and recipes in this repo can be released openly by Jatevo, but the base model is governed by the **NVIDIA Open Model Agreement**, not Apache 2.0. Final model release terms must be reviewed against NVIDIA's agreement before public distribution.
+The training code and recipes in this repo can be released openly by Jatevo, but the base model is governed by the NVIDIA Open Model Agreement. Final model release terms must be reviewed against NVIDIA's agreement before public distribution.
 
 ---
 

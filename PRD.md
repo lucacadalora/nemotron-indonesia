@@ -267,17 +267,16 @@ Output:
 
 | Source | Target Tokens | Purpose |
 |---|---:|---|
+| Indo4B HF mirror | 5.0B | core Indonesian formal + colloquial corpus |
+| SEA-PILE Indonesian | 2.0B | curated SEA corpus |
+| mC4 Indonesian filtered | 3.0B | web language breadth |
+| CC100 Indonesian filtered | 2.5B | web diversity |
 | Indonesian Wikipedia | 2.0B | structured knowledge |
-| Indonesian academic/textbook corpus | 2.5B | IndoMMLU/STEM strength |
-| OSCAR filtered | 5.0B | web language breadth |
-| CC100 filtered | 3.0B | web diversity |
-| SEA-LION Indonesian | 1.0B | curated SEA corpus |
+| Indonesian academic/textbook corpus | 2.0B | IndoMMLU/STEM strength |
 | News corpus | 2.0B | formal current language |
-| Government/legal docs | 1.5B | civic/legal/domain knowledge |
-| Kaskus/forums filtered | 1.0B | informal Indonesian |
-| Religious/cultural texts | 0.5B | cultural literacy |
-| Local languages | 1.5B | Javanese/Sundanese/etc. |
-| English STEM transfer | 1.0B | technical reasoning |
+| Government/legal docs | 1.0B | civic/legal/domain knowledge |
+| Local languages | 1.0B | Javanese/Sundanese/etc. |
+| English STEM transfer | 0.5B | technical reasoning |
 | **Total** | **20.0B** | |
 
 ### 7.2 Multimodal Corpus

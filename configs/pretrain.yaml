@@ -8,9 +8,11 @@ model:
 
 data:
   sources:
-    - oscar
-    - cc100
-    - wikipedia
+    - indo4b_hf
+    - sea_pile_id
+    - mc4_id
+    - cc100_id
+    - wikipedia_id
   min_length: 100
   max_length: 8192
   dedup_threshold: 0.85

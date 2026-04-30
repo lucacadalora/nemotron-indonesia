@@ -207,17 +207,21 @@ def prepare_pretraining_data(config: TrainingConfig, tokenizer):
     logger.info("Loading pre-training data...")
     
     datasets_to_load = [
-        ('oscar-corpus/OSCAR-2301', 'id', 0.3),  # 30% of OSCAR
-        ('cc100', 'id', 0.3),  # Common Crawl
-        ('wikimedia/wikipedia', '20231101.id', 0.2),  # Wikipedia
+        ('taufiqdp/Indo4B-hf', None, 0.35),  # Indonesian formal + colloquial corpus
+        ('allenai/c4', 'id', 0.25),  # mC4 Indonesian web corpus
+        ('statmt/cc100', 'id', 0.20),  # CC100 Indonesian
+        ('wikimedia/wikipedia', '20231101.id', 0.20),  # Indonesian Wikipedia
     ]
     
     all_datasets = []
     
     for dataset_name, subset, ratio in datasets_to_load:
         try:
-            logger.info(f"Loading {dataset_name} ({subset})...")
-            ds = load_dataset(dataset_name, subset, split='train', streaming=True)
+            logger.info(f"Loading {dataset_name} ({subset or 'default'})...")
+            if subset:
+                ds = load_dataset(dataset_name, subset, split='train', streaming=True)
+            else:
+                ds = load_dataset(dataset_name, split='train', streaming=True)
             
             # Take subset
             ds = ds.shuffle(seed=42)

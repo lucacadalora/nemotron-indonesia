@@ -15,7 +15,7 @@ Usage:
     # Full pipeline with NER quality filter
     python prepare_data.py \
         --output_dir ./data/processed \
-        --datasets oscar cc100 wikipedia \
+        --datasets indo4b_hf cc100 wikipedia seapile \
         --use_ner_filter \
         --ner_model cahya/bert-base-indonesian-NER \
         --quality_threshold 0.6
@@ -168,6 +168,21 @@ class IndonesianDataProcessor:
         # Add special tokens
         special_tokens = {'additional_special_tokens': list(self.lang_tokens.values())}
         self.tokenizer.add_special_tokens(special_tokens)
+
+    def download_indo4b_hf(self):
+        """Download Indo4B HF parquet mirror.
+
+        This is the preferred open replacement for relying on manually gated
+        generic web corpora during the first Nemotron-Indonesia runs.
+        """
+        logger.info("Downloading Indo4B HF mirror: taufiqdp/Indo4B-hf")
+
+        try:
+            ds = load_dataset('taufiqdp/Indo4B-hf', split='train')
+            return ds
+        except Exception as e:
+            logger.warning(f"Failed to load Indo4B HF mirror: {e}")
+            return None
     
     def download_sealion_pile(self, language: str = 'id'):
         """Download SEA-LION Pile (SEA-PILE-v1) and filter for Indonesian only
@@ -446,7 +461,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Pipeline Phases:
-  1. DOWNLOAD — Fetch from HuggingFace (OSCAR, CC100, Wikipedia, etc.)
+  1. DOWNLOAD — Fetch from HuggingFace/direct sources (Indo4B, CC100, Wikipedia, etc.)
   2. CLEAN    — Regex cleaning, length filter, language detection
   3. QUALITY  — Optional NER entity-density scoring (BERT-based filter)
   4. PACKAGE  — Deduplication, tokenization, save to disk
@@ -465,7 +480,7 @@ Examples:
     parser.add_argument('--output_dir', type=str, default='./data/processed',
                        help='Where processed data is saved (local server storage)')
     parser.add_argument('--datasets', nargs='+', default=['cc100', 'wikipedia', 'liputan6', 'sealion'],
-                       choices=['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'sealion', 'all'],
+                       choices=['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'seapile', 'sealion', 'all'],
                        help='Which datasets to download and process')
     parser.add_argument('--min_length', type=int, default=100,
                        help='Minimum document length (characters)')
@@ -514,15 +529,15 @@ Examples:
     
     datasets_to_download = []
     if 'all' in args.datasets:
-        datasets_to_download = ['oscar', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'sealion']
+        datasets_to_download = ['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'seapile']
     else:
         datasets_to_download = args.datasets
     
     datasets = {}
     for name in datasets_to_download:
         logger.info(f"\nDownloading {name}...")
-        if name == 'oscar':
-            datasets['oscar'] = processor.download_oscar()
+        if name == 'indo4b_hf':
+            datasets['indo4b_hf'] = processor.download_indo4b_hf()
         elif name == 'cc100':
             datasets['cc100'] = processor.download_cc100()
         elif name == 'wikipedia':
@@ -531,8 +546,8 @@ Examples:
             datasets['kaskus'] = processor.download_kaskus()
         elif name == 'liputan6':
             datasets['liputan6'] = processor.download_liputan6()
-        elif name == 'sealion':
-            datasets['sealion'] = processor.download_sealion_pile()
+        elif name in ('seapile', 'sealion'):
+            datasets['seapile'] = processor.download_sealion_pile()
     
     logger.info("\n" + "-" * 70)
     logger.info("PHASE 1 COMPLETE")

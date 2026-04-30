@@ -1,0 +1,31 @@
+# Generated data and model artifacts
+data/
+models/
+results/
+outputs/
+checkpoints/
+wandb/
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Large artifacts
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.parquet
+*.jsonl.gz
+*.txt.xz
+*.tfrecord-*.json.gz

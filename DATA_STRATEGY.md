@@ -31,17 +31,16 @@ Sahabat AI used 50B tokens and got 52% on IndoMMLU. More data ≠ better. We nee
 
 | Source | Tokens | % | Quality Tier | Purpose for IndoMMLU |
 |--------|--------|---|--------------|---------------------|
+| **Indo4B HF mirror** | 5.0B | 25% | A | Indonesian formal + colloquial corpus from the IndoBERT ecosystem |
+| **SEA-PILE Indonesian** | 2.0B | 10% | A | AI Singapore-curated SEA web corpus, Indonesian subset |
+| **mC4 Indonesian (filtered)** | 3.0B | 15% | B+ | Large Common Crawl-derived Indonesian web coverage |
+| **CC100 Indonesian (filtered)** | 2.5B | 12.5% | B+ | Web diversity, filtered for quality |
 | **Indonesian Wikipedia** | 2.0B | 10% | A+ | Structured knowledge — STEM, history, geography |
-| **Indonesian Academic Corpus** | 2.5B | 12.5% | A+ | Scientific papers, textbooks, educational content |
-| **OSCAR (filtered)** | 5.0B | 25% | B+ | Broad web coverage, deduplicated & quality-scored |
-| **CC100 Indonesian (filtered)** | 3.0B | 15% | B+ | Web diversity, filtered for quality |
-| **SEA-LION Pile - Indonesian** | 1.0B | 5% | A | AI Singapore-curated SEA language corpus |
+| **Indonesian Academic Corpus** | 2.0B | 10% | A+ | Scientific papers, textbooks, educational content |
 | **Liputan6 + ID News** | 2.0B | 10% | A | Formal language, current events, social science |
-| **Kaskus (heavily filtered)** | 1.0B | 5% | C+ | Informal Indonesian, internet slang, cultural context |
-| **Indonesian Government Docs** | 1.5B | 7.5% | A | Legal, policy, civic education (civics exam content) |
-| **Religious Texts (Quran, Bible ID)** | 0.5B | 2.5% | A | Cultural/religious literacy (common exam topics) |
-| **Javanese/Sundanese/Balinese** | 1.5B | 7.5% | B | Local language coverage for NusaX + cultural questions |
-| **English Academic (STEM)** | 1.0B | 5% | A+ | STEM concepts transfer to Indonesian (math, physics) |
+| **Indonesian Government Docs** | 1.0B | 5% | A | Legal, policy, civic education (civics exam content) |
+| **Javanese/Sundanese/Balinese** | 1.0B | 5% | B | Local language coverage for NusaX + cultural questions |
+| **English Academic (STEM)** | 0.5B | 2.5% | A+ | STEM concepts transfer to Indonesian (math, physics) |
 | **TOTAL** | **20.0B** | **100%** | | |
 
 ### 2.2 Quality Tiers Explained
@@ -58,28 +57,29 @@ Sahabat AI used 50B tokens and got 52% on IndoMMLU. More data ≠ better. We nee
 - VOA Indonesian, Global Voices
 
 **B+ (Filtered web):**
-- OSCAR 2301 Indonesian subset → filter with quality heuristics
+- mC4 Indonesian → deduplicate + quality score
 - CC100 Indonesian → deduplicate + quality score
+- Optional CulturaX Indonesian if Hugging Face access terms are accepted
 
 **C+ (Informal, heavily filtered):**
 - Kaskus forums → only posts >200 chars, language confidence >0.95, toxicity score <0.3
 
 ---
 
-### 2.3 SEA-LION Pile — AI Singapore Collaboration Asset
+### 2.3 SEA-PILE — AI Singapore Collaboration Asset
 
-SEA-LION (Southeast Asian Languages in One Network) is AI Singapore's flagship multilingual LLM project. Their **SEA-LION Pile** dataset is openly available and represents the highest-quality curated Indonesian web corpus.
+SEA-LION (Southeast Asian Languages in One Network) is AI Singapore's flagship multilingual LLM project. The **SEA-PILE-v1** dataset is openly available and provides a curated Southeast Asian web corpus with an Indonesian subset.
 
 **Why we include it:**
 - ✅ Already used by Sahabat AI (27.5B tokens, 55% of their pre-training data)
 - ✅ AI Singapore is a **proven collaborator** — they co-developed Sahabat AI with GoTo
 - ✅ Opens door to future partnership with AI Singapore (NUS-backed, government-funded)
-- ✅ Higher quality than raw OSCAR/CC100 — already filtered for SEA languages
+- ✅ Higher quality than raw generic web dumps — already filtered for SEA languages
 - ✅ Includes Javanese, Sundanese, Balinese subsets for local language coverage
 
-**Dataset:** https://huggingface.co/datasets/aisingapore/sea-lion-pile
+**Dataset:** https://huggingface.co/datasets/aisingapore/SEA-PILE-v1
 
-**Note:** Use SEA-LION Pile v2 (latest) which filters CommonCrawl WARC with fastText language classifier for 11 SEA languages.
+**Note:** Pull only `sea-pile-mc4/id/*.jsonl.gz` for the Indonesian subset.
 
 ---
 

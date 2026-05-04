@@ -15,6 +15,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import subprocess
 import sys
@@ -66,6 +67,8 @@ SOURCES: Dict[str, dict] = {
         "url": "https://data.statmt.org/cc-100/id.txt.xz",
         "role": "CC100 Indonesian web corpus from CC-Net/XLM-R pipeline.",
         "access": "public",
+        # sha256 checksums keyed by URL; fill in to enable integrity verification.
+        "checksums": {},
     },
     "cc100_local_languages": {
         "kind": "direct_many",
@@ -77,6 +80,8 @@ SOURCES: Dict[str, dict] = {
         "url": "https://data.statmt.org/cc-100/",
         "role": "Javanese and Sundanese CC100 subsets for local-language coverage.",
         "access": "public",
+        # sha256 checksums keyed by URL; fill in to enable integrity verification.
+        "checksums": {},
     },
     "wikipedia_id": {
         "kind": "hf_dataset",
@@ -198,6 +203,29 @@ def verify_url(url: str, access: str) -> str:
         return f"ERROR {type(e).__name__}: {e}"
 
 
+def compute_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def file_is_valid(path: Path, expected_sha256: str | None) -> bool:
+    """Return True if path exists and its checksum matches (or no checksum is expected)."""
+    if not path.exists():
+        return False
+    if expected_sha256 is None:
+        return True
+    print(f"  Verifying checksum: {path.name} ...", end=" ", flush=True)
+    actual = compute_sha256(path)
+    if actual == expected_sha256:
+        print("OK")
+        return True
+    print(f"MISMATCH\n  expected {expected_sha256[:16]}…\n  got      {actual[:16]}…")
+    return False
+
+
 def download_hf(name: str, src: dict, root: Path, dry_run: bool) -> None:
     target = root / src["target"]
     print_source(name, src)
@@ -221,9 +249,10 @@ def download_hf(name: str, src: dict, root: Path, dry_run: bool) -> None:
     )
 
 
-def download_direct(name: str, src: dict, root: Path, dry_run: bool) -> None:
+def download_direct(name: str, src: dict, root: Path, dry_run: bool, force: bool = False) -> None:
     print_source(name, src)
     urls = src.get("urls", [src["url"]])
+    checksums: dict = src.get("checksums", {})
     if dry_run:
         if src["kind"] == "direct":
             dry_paths = [root / src["target"]]
@@ -241,8 +270,22 @@ def download_direct(name: str, src: dict, root: Path, dry_run: bool) -> None:
         target.mkdir(parents=True, exist_ok=True)
         out_paths = [target / Path(url).name for url in urls]
     for url, out_path in zip(urls, out_paths):
-        print(f"Downloading {url} -> {out_path}")
+        expected = checksums.get(url)
+        if not force and file_is_valid(out_path, expected):
+            label = "checksum verified" if expected else "already exists"
+            print(f"  SKIP {out_path.name} ({label})")
+            continue
+        print(f"  Downloading {url} -> {out_path}")
         subprocess.run(["curl", "-L", "-C", "-", "--fail", "--output", str(out_path), url], check=True)
+        if expected:
+            actual = compute_sha256(out_path)
+            if actual != expected:
+                raise SystemExit(
+                    f"Checksum mismatch after download: {out_path.name}\n"
+                    f"  expected {expected}\n"
+                    f"  got      {actual}"
+                )
+            print(f"  Checksum OK {out_path.name}")
 
 
 def main() -> int:
@@ -251,6 +294,7 @@ def main() -> int:
     parser.add_argument("--sources", nargs="+", default=[], help="Source names, or core/all")
     parser.add_argument("--root", default=".", help="Repository/data root")
     parser.add_argument("--dry-run", action="store_true", help="Print commands without downloading")
+    parser.add_argument("--force", action="store_true", help="Re-download even if file already exists")
     parser.add_argument("--verify-links", action="store_true", help="HEAD-check source landing/direct URLs")
     args = parser.parse_args()
 
@@ -282,7 +326,7 @@ def main() -> int:
         if src["kind"].startswith("hf_"):
             download_hf(name, src, root, args.dry_run)
         else:
-            download_direct(name, src, root, args.dry_run)
+            download_direct(name, src, root, args.dry_run, args.force)
     return 0
 
 

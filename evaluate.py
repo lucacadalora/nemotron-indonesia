@@ -249,6 +249,114 @@ class NusaXEvaluator(IndoBenchmark):
         return 2  # Default neutral
 
 
+class IndoNLUEvaluator(IndoBenchmark):
+    """Evaluate on IndoNLU benchmark tasks (SmSA sentiment + EmoT emotion)."""
+
+    TASK_CONFIGS = {
+        'smsa': {
+            'name': 'SmSA (Sentiment)',
+            'hf_config': 'smsa',
+            'text_col': 'sentence',
+            'label_col': 'label',
+            'prompt_template': (
+                "<|user|>\nAnalisis sentimen dari kalimat berikut.\n"
+                "Kalimat: {text}\n"
+                "Pilih satu: positive / negative / neutral\n"
+                "<|assistant|>\nSentimen:"
+            ),
+        },
+        'emot': {
+            'name': 'EmoT (Emotion)',
+            'hf_config': 'emot',
+            'text_col': 'tweet',
+            'label_col': 'label',
+            'prompt_template': (
+                "<|user|>\nIdentifikasi emosi dominan dari tweet berikut.\n"
+                "Tweet: {text}\n"
+                "<|assistant|>\nEmosi:"
+            ),
+        },
+    }
+
+    def __init__(self, model_path: str, device: str = 'cuda'):
+        super().__init__(model_path, device)
+        self.loaded_tasks: Dict[str, object] = {}
+        for task_key, cfg in self.TASK_CONFIGS.items():
+            try:
+                ds = load_dataset('indonlp/indonlu', cfg['hf_config'], split='test')
+                self.loaded_tasks[task_key] = ds
+                logger.info(f"Loaded IndoNLU {cfg['name']}: {len(ds)} examples")
+            except Exception as e:
+                logger.warning(f"Could not load IndoNLU {cfg['name']}: {e}")
+
+    def _label_names(self, task_key: str) -> List[str]:
+        cfg = self.TASK_CONFIGS[task_key]
+        ds = self.loaded_tasks[task_key]
+        feature = ds.features[cfg['label_col']]
+        if hasattr(feature, 'names'):
+            return feature.names
+        # Fallback: collect unique string labels if labels are stored as strings
+        return sorted({str(ex[cfg['label_col']]) for ex in ds})
+
+    def _parse_label(self, generated: str, label_names: List[str]) -> Optional[int]:
+        text = generated.lower().strip()
+        for i, name in enumerate(label_names):
+            if name.lower() in text[:40]:
+                return i
+        return None
+
+    def _evaluate_task(self, task_key: str, max_samples: Optional[int]) -> Dict:
+        cfg = self.TASK_CONFIGS[task_key]
+        dataset = self.loaded_tasks[task_key]
+        if max_samples:
+            dataset = dataset.select(range(min(max_samples, len(dataset))))
+
+        label_names = self._label_names(task_key)
+        correct = 0
+        total = 0
+        predictions = []
+
+        for example in tqdm(dataset, desc=f"IndoNLU/{cfg['name']}"):
+            text = example[cfg['text_col']]
+            true_idx = example[cfg['label_col']]
+
+            prompt = cfg['prompt_template'].format(text=text)
+            generated = self.generate_answer(prompt, max_new_tokens=10)
+            pred_idx = self._parse_label(generated, label_names)
+
+            is_correct = pred_idx == true_idx
+            correct += int(is_correct)
+            total += 1
+            predictions.append({
+                'text': text,
+                'true': label_names[true_idx] if true_idx < len(label_names) else true_idx,
+                'predicted': label_names[pred_idx] if pred_idx is not None and pred_idx < len(label_names) else pred_idx,
+                'generated': generated,
+                'correct': is_correct,
+            })
+
+        return {
+            'accuracy': correct / total if total > 0 else 0,
+            'correct': correct,
+            'total': total,
+            'predictions': predictions,
+        }
+
+    def evaluate(self, max_samples: Optional[int] = None) -> Dict:
+        if not self.loaded_tasks:
+            return {'error': 'No IndoNLU tasks loaded', 'average': 0.0}
+
+        task_results = {}
+        for task_key in self.loaded_tasks:
+            task_results[task_key] = self._evaluate_task(task_key, max_samples)
+
+        accuracies = [r['accuracy'] for r in task_results.values()]
+        return {
+            'tasks': task_results,
+            'average': sum(accuracies) / len(accuracies) if accuracies else 0.0,
+        }
+
+
 class BenchmarkSuite:
     """Run multiple benchmarks"""
     
@@ -258,6 +366,7 @@ class BenchmarkSuite:
         self.evaluators = {
             'indommlu': IndoMMLUEvaluator,
             'nusax': NusaXEvaluator,
+            'indonlu': IndoNLUEvaluator,
         }
     
     def run(self, benchmarks: List[str], output_path: Optional[str] = None) -> Dict:
@@ -301,7 +410,7 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate Nemotron-Indonesia')
     parser.add_argument('--model_path', type=str, required=True)
     parser.add_argument('--benchmark', type=str, default='indommlu',
-                       choices=['indommlu', 'nusax', 'all'])
+                       choices=['indommlu', 'nusax', 'indonlu', 'all'])
     parser.add_argument('--output', type=str, default='results.json')
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--max_samples', type=int, default=None)
@@ -310,7 +419,7 @@ def main():
     
     # Determine benchmarks
     if args.benchmark == 'all':
-        benchmarks = ['indommlu', 'nusax']
+        benchmarks = ['indommlu', 'nusax', 'indonlu']
     else:
         benchmarks = [args.benchmark]
     

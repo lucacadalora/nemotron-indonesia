@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_DIR"
 
-ENV_NAME="nemotron-indonesia"
+VENV_DIR="$REPO_DIR/.venv"
 MODEL_NAME="nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"
 
 echo "=========================================="
@@ -16,9 +16,10 @@ echo "=========================================="
 echo "Repo: $REPO_DIR"
 echo ""
 
-if ! command -v conda >/dev/null 2>&1; then
-  echo "ERROR: conda is not installed or not on PATH."
-  echo "Install Miniconda/Mambaforge first, then rerun this script."
+if ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: uv is not installed or not on PATH."
+  echo "Install uv first: curl -LsSf https://astral.sh/uv/install.sh | sh"
+  echo "Then rerun this script."
   exit 1
 fi
 
@@ -34,21 +35,19 @@ echo "Disk Status:"
 df -h .
 
 echo ""
-echo "Creating/activating conda environment: $ENV_NAME"
-conda create -n "$ENV_NAME" python=3.10 -y || true
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$ENV_NAME"
+echo "Creating/activating uv virtual environment: $VENV_DIR"
+uv venv --python 3.10 "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
 
 echo ""
 echo "Installing Python dependencies..."
-pip install --upgrade pip
-pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
-pip install -r requirements.txt
+uv pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+uv pip install -r requirements.txt
 
 # Flash Attention is useful but should not block the first workflow check.
 echo ""
 echo "Installing Flash Attention 2 if compatible..."
-pip install flash-attn --no-build-isolation || echo "Flash Attention install failed; continuing without it."
+uv pip install flash-attn --no-build-isolation || echo "Flash Attention install failed; continuing without it."
 
 echo ""
 echo "Checking Python files..."

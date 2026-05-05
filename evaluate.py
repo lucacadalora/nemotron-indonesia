@@ -11,10 +11,12 @@ Usage:
         --batch_size 8
 """
 
+import csv
 import os
 import json
 import argparse
 import logging
+import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional
 from collections import defaultdict
@@ -22,7 +24,7 @@ from collections import defaultdict
 import torch
 from torch.utils.data import DataLoader
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 from datasets import load_dataset
 from tqdm import tqdm
 import numpy as np
@@ -43,29 +45,38 @@ class IndoBenchmark:
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
-            device_map='auto',
+            device_map={'': 0},
             trust_remote_code=True,
         )
         self.model.eval()
-        
+
+        # The model's generation_config.json ships with do_sample=True and temperature=0.6.
+        # The custom generate wrapper in modeling.py reads this config internally, so passing
+        # do_sample=False as a kwarg to generate() is not enough — we must patch the config.
+        self.model.generation_config = GenerationConfig(
+            do_sample=False,
+            bos_token_id=self.model.generation_config.bos_token_id,
+            eos_token_id=self.model.generation_config.eos_token_id,
+            pad_token_id=self.model.generation_config.pad_token_id,
+        )
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
     
-    def generate_answer(self, prompt: str, max_new_tokens: int = 100, temperature: float = 0.1) -> str:
-        """Generate answer for a prompt"""
+    def generate_answer(self, prompt: str, max_new_tokens: int = 100) -> str:
+        """Generate answer using greedy decoding (deterministic, no NaN risk from sampling)."""
         inputs = self.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=2048)
         inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-        
+
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                do_sample=temperature > 0,
+                generation_config=self.model.generation_config,
                 pad_token_id=self.tokenizer.pad_token_id,
                 eos_token_id=self.tokenizer.eos_token_id,
             )
-        
+
         answer = self.tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
         return answer.strip()
 
@@ -250,14 +261,27 @@ class NusaXEvaluator(IndoBenchmark):
 
 
 class IndoNLUEvaluator(IndoBenchmark):
-    """Evaluate on IndoNLU benchmark tasks (SmSA sentiment + EmoT emotion)."""
+    """Evaluate on IndoNLU benchmark tasks (SmSA sentiment + EmoT emotion).
 
+    Fetches raw test files directly from the IndoNLU GitHub repository,
+    bypassing the HF datasets loading-script mechanism removed in datasets>=3.0.
+    """
+
+    # Source: indonlu.py BUILDER_CONFIGS — exact URLs, formats, and column order.
     TASK_CONFIGS = {
         'smsa': {
             'name': 'SmSA (Sentiment)',
-            'hf_config': 'smsa',
-            'text_col': 'sentence',
+            'test_url': (
+                'https://raw.githubusercontent.com/IndoNLP/indonlu/master/'
+                'dataset/smsa_doc-sentiment-prosa/test_preprocess.tsv'
+            ),
+            'delimiter': '\t',
+            'quoting': csv.QUOTE_NONE,
+            'has_header': False,
+            'columns': ['text', 'label'],      # TSV column order: text, label
+            'text_col': 'text',
             'label_col': 'label',
+            'label_classes': ['positive', 'neutral', 'negative'],
             'prompt_template': (
                 "<|user|>\nAnalisis sentimen dari kalimat berikut.\n"
                 "Kalimat: {text}\n"
@@ -267,9 +291,17 @@ class IndoNLUEvaluator(IndoBenchmark):
         },
         'emot': {
             'name': 'EmoT (Emotion)',
-            'hf_config': 'emot',
+            'test_url': (
+                'https://raw.githubusercontent.com/IndoNLP/indonlu/master/'
+                'dataset/emot_emotion-twitter/test_preprocess.csv'
+            ),
+            'delimiter': ',',
+            'quoting': csv.QUOTE_ALL,
+            'has_header': True,
+            'columns': ['label', 'tweet'],     # CSV column order: label, tweet
             'text_col': 'tweet',
             'label_col': 'label',
+            'label_classes': ['sadness', 'anger', 'love', 'fear', 'happy'],
             'prompt_template': (
                 "<|user|>\nIdentifikasi emosi dominan dari tweet berikut.\n"
                 "Tweet: {text}\n"
@@ -280,57 +312,71 @@ class IndoNLUEvaluator(IndoBenchmark):
 
     def __init__(self, model_path: str, device: str = 'cuda'):
         super().__init__(model_path, device)
-        self.loaded_tasks: Dict[str, object] = {}
+        self.loaded_tasks: Dict[str, List[Dict]] = {}
         for task_key, cfg in self.TASK_CONFIGS.items():
             try:
-                ds = load_dataset('indonlp/indonlu', cfg['hf_config'], split='test')
-                self.loaded_tasks[task_key] = ds
-                logger.info(f"Loaded IndoNLU {cfg['name']}: {len(ds)} examples")
+                rows = self._fetch_task(cfg)
+                self.loaded_tasks[task_key] = rows
+                logger.info(f"Loaded IndoNLU {cfg['name']}: {len(rows)} examples")
             except Exception as e:
                 logger.warning(f"Could not load IndoNLU {cfg['name']}: {e}")
 
-    def _label_names(self, task_key: str) -> List[str]:
-        cfg = self.TASK_CONFIGS[task_key]
-        ds = self.loaded_tasks[task_key]
-        feature = ds.features[cfg['label_col']]
-        if hasattr(feature, 'names'):
-            return feature.names
-        # Fallback: collect unique string labels if labels are stored as strings
-        return sorted({str(ex[cfg['label_col']]) for ex in ds})
+    @staticmethod
+    def _fetch_task(cfg: dict) -> List[Dict]:
+        """Download raw CSV/TSV from GitHub and return a list of row dicts."""
+        with urllib.request.urlopen(cfg['test_url']) as resp:
+            content = resp.read().decode('utf-8')
+        reader = csv.reader(
+            content.splitlines(),
+            delimiter=cfg['delimiter'],
+            quotechar='"',
+            quoting=cfg['quoting'],
+        )
+        if cfg['has_header']:
+            next(reader)
+        return [
+            {col: row[i] for i, col in enumerate(cfg['columns'])}
+            for row in reader if row
+        ]
 
-    def _parse_label(self, generated: str, label_names: List[str]) -> Optional[int]:
+    def _parse_label(self, generated: str, label_classes: List[str]) -> Optional[int]:
         text = generated.lower().strip()
-        for i, name in enumerate(label_names):
+        for i, name in enumerate(label_classes):
             if name.lower() in text[:40]:
                 return i
         return None
 
     def _evaluate_task(self, task_key: str, max_samples: Optional[int]) -> Dict:
         cfg = self.TASK_CONFIGS[task_key]
-        dataset = self.loaded_tasks[task_key]
+        rows = self.loaded_tasks[task_key]
         if max_samples:
-            dataset = dataset.select(range(min(max_samples, len(dataset))))
+            rows = rows[:max_samples]
 
-        label_names = self._label_names(task_key)
+        label_classes = cfg['label_classes']
         correct = 0
         total = 0
         predictions = []
 
-        for example in tqdm(dataset, desc=f"IndoNLU/{cfg['name']}"):
+        for example in tqdm(rows, desc=f"IndoNLU/{cfg['name']}"):
             text = example[cfg['text_col']]
-            true_idx = example[cfg['label_col']]
+            true_label = example[cfg['label_col']]
+            try:
+                true_idx = label_classes.index(true_label)
+            except ValueError:
+                logger.warning(f"Skipping unknown label '{true_label}'")
+                continue
 
             prompt = cfg['prompt_template'].format(text=text)
             generated = self.generate_answer(prompt, max_new_tokens=10)
-            pred_idx = self._parse_label(generated, label_names)
+            pred_idx = self._parse_label(generated, label_classes)
 
             is_correct = pred_idx == true_idx
             correct += int(is_correct)
             total += 1
             predictions.append({
                 'text': text,
-                'true': label_names[true_idx] if true_idx < len(label_names) else true_idx,
-                'predicted': label_names[pred_idx] if pred_idx is not None and pred_idx < len(label_names) else pred_idx,
+                'true': true_label,
+                'predicted': label_classes[pred_idx] if pred_idx is not None else None,
                 'generated': generated,
                 'correct': is_correct,
             })

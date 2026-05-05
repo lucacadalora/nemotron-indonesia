@@ -145,8 +145,10 @@ class NERQualityFilter:
 
 class IndonesianDataProcessor:
     """Process and curate Indonesian text data for LLM training"""
-    
-    def __init__(self, tokenizer_name: str = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16"):
+
+    def __init__(self, tokenizer_name: str = "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16",
+                 data_dir: str = "./data/raw"):
+        self.data_dir = Path(data_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -170,31 +172,39 @@ class IndonesianDataProcessor:
         self.tokenizer.add_special_tokens(special_tokens)
 
     def download_indo4b_hf(self):
-        """Download Indo4B HF parquet mirror.
+        """Load Indo4B HF parquet mirror from local download, falling back to HuggingFace."""
+        local_path = self.data_dir / 'indo4b-hf' / 'data'
+        if local_path.exists():
+            files = sorted(str(f) for f in local_path.glob('*.parquet'))
+            if files:
+                logger.info(f"Loading Indo4B HF from local: {local_path}")
+                try:
+                    return load_dataset('parquet', data_files=files, split='train')
+                except Exception as e:
+                    logger.warning(f"Local load failed, falling back to HF: {e}")
 
-        This is the preferred open replacement for relying on manually gated
-        generic web corpora during the first Nemotron-Indonesia runs.
-        """
         logger.info("Downloading Indo4B HF mirror: taufiqdp/Indo4B-hf")
-
         try:
-            ds = load_dataset('taufiqdp/Indo4B-hf', split='train')
-            return ds
+            return load_dataset('taufiqdp/Indo4B-hf', split='train')
         except Exception as e:
             logger.warning(f"Failed to load Indo4B HF mirror: {e}")
             return None
     
     def download_sealion_pile(self, language: str = 'id'):
-        """Download SEA-LION Pile (SEA-PILE-v1) and filter for Indonesian only
-        
-        SEA-PILE-v1 contains 11 SEA languages. We filter for files starting
-        with 'c4-id' to get only Indonesian content.
-        """
+        """Load SEA-PILE Indonesian subset from local download, falling back to HuggingFace."""
+        local_path = self.data_dir / 'sea-pile-id' / 'sea-pile-mc4' / language
+        if local_path.exists():
+            files = sorted(str(f) for f in local_path.glob('*.jsonl.gz'))
+            if files:
+                logger.info(f"Loading SEA-PILE from local: {local_path}")
+                try:
+                    return load_dataset('json', data_files=files, split='train')
+                except Exception as e:
+                    logger.warning(f"Local load failed, falling back to HF: {e}")
+
         logger.info(f"Downloading SEA-LION Pile for language: {language}")
-        
         try:
             ds = load_dataset('aisingapore/SEA-PILE-v1', split='train', streaming=True)
-            # Filter for Indonesian files only (c4-id prefix)
             ds = ds.filter(lambda x: x.get('file', '').startswith(f'c4-{language}'))
             logger.info(f"SEA-LION Pile filtered to {language} subset")
             return ds
@@ -203,23 +213,44 @@ class IndonesianDataProcessor:
             return None
     
     def download_cc100(self, language: str = 'id'):
-        """Download Common Crawl 100"""
-        logger.info(f"Downloading CC100 for language: {language}")
-        
+        """Load CC100 from local .xz file (datasets library does not support .xz natively)."""
+        import lzma
+        from datasets import Dataset as HFDataset
+
+        local_file = self.data_dir / 'cc100' / f'{language}.txt.xz'
+        if not local_file.exists():
+            logger.warning(f"CC100 local file not found: {local_file}")
+            logger.warning("Run: python download_sources.py --sources cc100_id")
+            return None
+
+        logger.info(f"Loading CC100 from local: {local_file}")
         try:
-            ds = load_dataset('cc100', lang=language, split='train', streaming=True)
-            return ds
+            def _gen():
+                with lzma.open(local_file, 'rt', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.rstrip('\n')
+                        if line.strip():
+                            yield {'text': line}
+            return HFDataset.from_generator(_gen)
         except Exception as e:
-            logger.warning(f"Failed to load CC100: {e}")
+            logger.warning(f"Failed to load local CC100: {e}")
             return None
     
     def download_wikipedia(self, language: str = 'id'):
-        """Download Wikipedia"""
+        """Load Wikipedia from local download, falling back to HuggingFace."""
+        local_path = self.data_dir / 'wikipedia-id' / f'20231101.{language}'
+        if local_path.exists():
+            files = sorted(str(f) for f in local_path.glob('*.parquet'))
+            if files:
+                logger.info(f"Loading Wikipedia from local: {local_path}")
+                try:
+                    return load_dataset('parquet', data_files=files, split='train')
+                except Exception as e:
+                    logger.warning(f"Local load failed, falling back to HF: {e}")
+
         logger.info(f"Downloading Wikipedia for language: {language}")
-        
         try:
-            ds = load_dataset('wikimedia/wikipedia', f'20231101.{language}', split='train')
-            return ds
+            return load_dataset('wikimedia/wikipedia', f'20231101.{language}', split='train')
         except Exception as e:
             logger.warning(f"Failed to load Wikipedia: {e}")
             return None
@@ -235,6 +266,44 @@ class IndonesianDataProcessor:
                 logger.warning(f"Failed to load Kaskus: {e}")
         return None
     
+    def download_mc4_id(self):
+        """Load mC4 Indonesian subset from local download, falling back to HuggingFace."""
+        local_path = self.data_dir / 'mc4-id' / 'multilingual'
+        if local_path.exists():
+            files = sorted(str(f) for f in local_path.glob('c4-id*.json.gz'))
+            if files:
+                logger.info(f"Loading mC4-id from local: {local_path}")
+                try:
+                    return load_dataset('json', data_files=files, split='train')
+                except Exception as e:
+                    logger.warning(f"Local load failed, falling back to HF: {e}")
+
+        logger.info("Downloading mC4 Indonesian from HuggingFace")
+        try:
+            return load_dataset('allenai/c4', 'multilingual', split='train', streaming=True)
+        except Exception as e:
+            logger.warning(f"Failed to load mC4-id: {e}")
+            return None
+
+    def download_culturax_id(self):
+        """Load CulturaX Indonesian subset from local download, falling back to HuggingFace."""
+        local_path = self.data_dir / 'culturax-id' / 'id'
+        if local_path.exists():
+            files = sorted(str(f) for f in local_path.glob('*.parquet'))
+            if files:
+                logger.info(f"Loading CulturaX-id from local: {local_path}")
+                try:
+                    return load_dataset('parquet', data_files=files, split='train')
+                except Exception as e:
+                    logger.warning(f"Local load failed, falling back to HF: {e}")
+
+        logger.info("Downloading CulturaX Indonesian from HuggingFace (requires HF token)")
+        try:
+            return load_dataset('uonlp/CulturaX', 'id', split='train', streaming=True)
+        except Exception as e:
+            logger.warning(f"Failed to load CulturaX-id: {e}")
+            return None
+
     def download_liputan6(self):
         """Download Liputan6 news corpus"""
         logger.info("Downloading Liputan6")
@@ -479,9 +548,12 @@ Examples:
     )
     parser.add_argument('--output_dir', type=str, default='./data/processed',
                        help='Where processed data is saved (local server storage)')
+    parser.add_argument('--data_dir', type=str, default='./data/raw',
+                       help='Root directory of locally downloaded raw data (from download_sources.py)')
     parser.add_argument('--datasets', nargs='+', default=['cc100', 'wikipedia', 'liputan6', 'sealion'],
-                       choices=['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'seapile', 'sealion', 'all'],
-                       help='Which datasets to download and process')
+                       choices=['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
+                                'seapile', 'sealion', 'mc4_id', 'culturax_id', 'all'],
+                       help='Which datasets to process')
     parser.add_argument('--min_length', type=int, default=100,
                        help='Minimum document length (characters)')
     parser.add_argument('--max_length', type=int, default=10000,
@@ -519,7 +591,7 @@ Examples:
         logger.info(f"  Quality threshold: {args.quality_threshold}")
     logger.info("="*70 + "\n")
     
-    processor = IndonesianDataProcessor(tokenizer_name=args.tokenizer)
+    processor = IndonesianDataProcessor(tokenizer_name=args.tokenizer, data_dir=args.data_dir)
     
     # ========================================================================
     # PHASE 1: DOWNLOAD
@@ -529,13 +601,14 @@ Examples:
     
     datasets_to_download = []
     if 'all' in args.datasets:
-        datasets_to_download = ['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6', 'seapile']
+        datasets_to_download = ['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
+                                'seapile', 'mc4_id', 'culturax_id']
     else:
         datasets_to_download = args.datasets
-    
+
     datasets = {}
     for name in datasets_to_download:
-        logger.info(f"\nDownloading {name}...")
+        logger.info(f"\nLoading {name}...")
         if name == 'indo4b_hf':
             datasets['indo4b_hf'] = processor.download_indo4b_hf()
         elif name == 'cc100':
@@ -548,6 +621,10 @@ Examples:
             datasets['liputan6'] = processor.download_liputan6()
         elif name in ('seapile', 'sealion'):
             datasets['seapile'] = processor.download_sealion_pile()
+        elif name == 'mc4_id':
+            datasets['mc4_id'] = processor.download_mc4_id()
+        elif name == 'culturax_id':
+            datasets['culturax_id'] = processor.download_culturax_id()
     
     logger.info("\n" + "-" * 70)
     logger.info("PHASE 1 COMPLETE")

@@ -170,15 +170,43 @@ If full model loading is too heavy at this stage, record the failure and continu
 
 ## 8. Prepare First Text Corpus
 
-Start with a smaller mix before pulling everything:
+`prepare_data.py` reads from whatever was already downloaded by `download_sources.py`.
+Always pass `--data_dir ./data/raw` so the script uses local files instead of re-downloading.
+
+**First-milestone (indo4b_hf + wikipedia only):**
 
 ```bash
 python prepare_data.py \
+  --data_dir ./data/raw \
   --output_dir ./data/processed \
   --datasets indo4b_hf wikipedia \
-  --tokenizer_name nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
+  --tokenizer nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
   --dedup_threshold 0.85
 ```
+
+**Full core bundle (after step 5 completes):**
+
+```bash
+python prepare_data.py \
+  --data_dir ./data/raw \
+  --output_dir ./data/processed \
+  --datasets indo4b_hf wikipedia seapile cc100 mc4_id \
+  --tokenizer nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
+  --dedup_threshold 0.85
+```
+
+**With CulturaX (if pulled in step 5):**
+
+```bash
+python prepare_data.py \
+  --data_dir ./data/raw \
+  --output_dir ./data/processed \
+  --datasets all \
+  --tokenizer nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16 \
+  --dedup_threshold 0.85
+```
+
+Available `--datasets` values: `indo4b_hf`, `wikipedia`, `seapile`, `cc100`, `mc4_id`, `culturax_id`, `liputan6`, `kaskus`, `all`
 
 Expected output:
 

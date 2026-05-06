@@ -212,28 +212,83 @@ class IndonesianDataProcessor:
             logger.warning(f"Failed to load SEA-LION Pile: {e}")
             return None
     
-    def download_cc100(self, language: str = 'id'):
-        """Load CC100 from local .xz file (datasets library does not support .xz natively)."""
+    def download_cc100(self, language: str = 'id', max_examples: int = 0):
+        """Load CC100 from a pre-extracted plain-text file (preferred) or the .xz archive.
+
+        Preferred: extract first so lzma is not involved at all:
+            xz -dk data/raw/cc100/id.txt.xz   # keeps the .xz, writes id.txt
+        If the .xz footer is corrupt use Python to extract:
+            python -c "
+            import lzma
+            with lzma.open('data/raw/cc100/id.txt.xz','rb') as i, open('data/raw/cc100/id.txt','wb') as o:
+                try:
+                    while chunk := i.read(1<<20): o.write(chunk)
+                except lzma.LZMAError: pass
+            "
+        Set max_examples > 0 to read a subset.
+        """
         import lzma
         from datasets import Dataset as HFDataset
 
-        local_file = self.data_dir / 'cc100' / f'{language}.txt.xz'
-        if not local_file.exists():
-            logger.warning(f"CC100 local file not found: {local_file}")
+        cc100_dir = self.data_dir / 'cc100'
+        txt_file = cc100_dir / f'{language}.txt'
+        xz_file  = cc100_dir / f'{language}.txt.xz'
+
+        if txt_file.exists():
+            cap_msg = f"capped at {max_examples:,}" if max_examples > 0 else "full corpus"
+            logger.info(f"Loading CC100 from extracted text: {txt_file} ({cap_msg})")
+            try:
+                if max_examples > 0:
+                    # stream-cap via generator to avoid loading the whole file
+                    cache_dir = str(self.data_dir / 'cache')
+                    def _gen_txt():
+                        count = 0
+                        with open(txt_file, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                if count >= max_examples:
+                                    break
+                                line = line.rstrip('\n')
+                                if line.strip():
+                                    yield {'text': line}
+                                    count += 1
+                    return HFDataset.from_generator(_gen_txt, cache_dir=cache_dir, writer_batch_size=100_000)
+                else:
+                    return load_dataset('text', data_files=str(txt_file), split='train')
+            except Exception as e:
+                logger.warning(f"Failed to load extracted CC100: {e}")
+                return None
+
+        if not xz_file.exists():
+            logger.warning(f"CC100 not found ({txt_file} or {xz_file})")
             logger.warning("Run: python download_sources.py --sources cc100_id")
             return None
 
-        logger.info(f"Loading CC100 from local: {local_file}")
+        # Fallback: read directly from .xz, catching the corrupt-footer error
+        cache_dir = str(self.data_dir / 'cache')
+        cap_msg = f"capped at {max_examples:,}" if max_examples > 0 else "full corpus"
+        logger.info(f"Loading CC100 from .xz: {xz_file} ({cap_msg}, cache → {cache_dir})")
         try:
-            def _gen():
-                with lzma.open(local_file, 'rt', encoding='utf-8') as f:
+            def _gen_xz():
+                count = 0
+                f = lzma.open(xz_file, 'rt', encoding='utf-8')
+                try:
                     for line in f:
+                        if max_examples > 0 and count >= max_examples:
+                            break
                         line = line.rstrip('\n')
                         if line.strip():
                             yield {'text': line}
-            return HFDataset.from_generator(_gen)
+                            count += 1
+                except lzma.LZMAError as e:
+                    logger.warning(f"CC100 lzma stream closed with error (corrupt XZ footer): {e}")
+                finally:
+                    try:
+                        f.close()
+                    except lzma.LZMAError:
+                        pass
+            return HFDataset.from_generator(_gen_xz, cache_dir=cache_dir, writer_batch_size=100_000)
         except Exception as e:
-            logger.warning(f"Failed to load local CC100: {e}")
+            logger.warning(f"Failed to load CC100 from .xz: {e}")
             return None
     
     def download_wikipedia(self, language: str = 'id'):
@@ -255,16 +310,49 @@ class IndonesianDataProcessor:
             logger.warning(f"Failed to load Wikipedia: {e}")
             return None
     
-    def download_kaskus(self, data_dir: Optional[str] = None):
-        """Load Kaskus forum corpus if available locally"""
-        if data_dir and Path(data_dir).exists():
-            logger.info(f"Loading Kaskus data from {data_dir}")
-            try:
-                ds = load_dataset('json', data_files=str(Path(data_dir) / 'kaskus.jsonl'), split='train')
-                return ds
-            except Exception as e:
-                logger.warning(f"Failed to load Kaskus: {e}")
-        return None
+    def download_kaskus(self, max_examples: int = 0):
+        """Load Kaskus forum corpus from local file (no public HuggingFace source available).
+
+        The local file has 207M lines / 44 GB. Arrow writes the cache to data/cache/
+        (same large partition as raw data) so the full corpus can be loaded.
+        Set max_examples > 0 to cap the number of lines read.
+        """
+        import json as _json
+
+        local_file = self.data_dir / 'kaskus' / 'kaskus.jsonl'
+        if not local_file.exists():
+            logger.warning(f"Kaskus local file not found: {local_file}")
+            logger.warning("Provide data/raw/kaskus/kaskus.jsonl to use this dataset")
+            return None
+
+        cache_dir = str(self.data_dir / 'cache')
+        cap_msg = f"capped at {max_examples:,}" if max_examples > 0 else "full corpus"
+        logger.info(f"Loading Kaskus from local: {local_file} ({cap_msg}, cache → {cache_dir})")
+        try:
+            from datasets import Dataset as HFDataset
+
+            def _gen():
+                count = 0
+                with open(local_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if max_examples > 0 and count >= max_examples:
+                            break
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = _json.loads(line)
+                            text = obj.get('text', '')
+                            if text:
+                                yield {'text': text}
+                                count += 1
+                        except _json.JSONDecodeError:
+                            continue
+
+            return HFDataset.from_generator(_gen, cache_dir=cache_dir)
+        except Exception as e:
+            logger.warning(f"Failed to load Kaskus: {e}")
+            return None
     
     def download_mc4_id(self):
         """Load mC4 Indonesian subset from local download, falling back to HuggingFace."""
@@ -305,11 +393,13 @@ class IndonesianDataProcessor:
             return None
 
     def download_liputan6(self):
-        """Download Liputan6 news corpus"""
-        logger.info("Downloading Liputan6")
-        
+        """Download Liputan6 news corpus (parquet-native mirror; fajri91/liputan6 is gone)."""
+        logger.info("Downloading Liputan6: PetaniHandal/liputan6-canonical")
         try:
-            ds = load_dataset('fajri91/liputan6', 'canonical', split='train')
+            ds = load_dataset('PetaniHandal/liputan6-canonical', split='train')
+            # Rename article column so process_dataset finds it as 'text'
+            if 'clean_article' in ds.column_names and 'text' not in ds.column_names:
+                ds = ds.rename_column('clean_article', 'text')
             return ds
         except Exception as e:
             logger.warning(f"Failed to load Liputan6: {e}")
@@ -554,6 +644,10 @@ Examples:
                        choices=['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
                                 'seapile', 'sealion', 'mc4_id', 'culturax_id', 'all'],
                        help='Which datasets to process')
+    parser.add_argument('--cc100_max_examples', type=int, default=0,
+                       help='Max raw lines to read from CC100 (0 = full 360M-line corpus; Arrow cache goes to data/raw/cache/)')
+    parser.add_argument('--kaskus_max_examples', type=int, default=0,
+                       help='Max lines to read from kaskus.jsonl (0 = full 207M-line corpus; Arrow cache goes to data/raw/cache/)')
     parser.add_argument('--min_length', type=int, default=100,
                        help='Minimum document length (characters)')
     parser.add_argument('--max_length', type=int, default=10000,
@@ -612,11 +706,11 @@ Examples:
         if name == 'indo4b_hf':
             datasets['indo4b_hf'] = processor.download_indo4b_hf()
         elif name == 'cc100':
-            datasets['cc100'] = processor.download_cc100()
+            datasets['cc100'] = processor.download_cc100(max_examples=args.cc100_max_examples)
         elif name == 'wikipedia':
             datasets['wikipedia'] = processor.download_wikipedia()
         elif name == 'kaskus':
-            datasets['kaskus'] = processor.download_kaskus()
+            datasets['kaskus'] = processor.download_kaskus(max_examples=args.kaskus_max_examples)
         elif name == 'liputan6':
             datasets['liputan6'] = processor.download_liputan6()
         elif name in ('seapile', 'sealion'):

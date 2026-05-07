@@ -455,18 +455,29 @@ class IndonesianDataProcessor:
         return [' '.join(words[i:i + k]).encode('utf-8') for i in range(len(words) - k + 1)]
 
     def deduplicate(self, dataset: Dataset, threshold: float = 0.85,
-                    num_perm: int = 128, num_proc: Optional[int] = None) -> Dataset:
-        """Near-duplicate removal via datasketch MinHash + LSH.
+                    num_perm: int = 128, num_proc: Optional[int] = None,
+                    num_bands: int = 16) -> Dataset:
+        """Near-duplicate removal via parallel MinHash band-bucketing + union-find.
 
-        Signature computation is parallelised across num_proc workers via
-        Dataset.map. Dedup uses an LSH index for near-linear lookup instead
-        of the previous O(n^2) pairwise comparison.
+        All heavy phases use multiple cores:
+          A. MinHash signatures per doc            (Dataset.map, num_proc workers)
+          B. Split signature into num_bands hashes (Dataset.map, num_proc workers)
+          C. group_by band-hash to find buckets    (PyArrow C++ thread pool)
+          D. Union-find over duplicate buckets     (single-threaded; small)
+
+        With num_perm=128 and num_bands=16 (rows_per_band=8), recall at Jaccard
+        similarity 0.85 is ~99% and false-positive rate is small.
         """
         n_total = len(dataset)
-        logger.info(f"Deduplicating {n_total:,} docs (threshold={threshold}, num_perm={num_perm}, num_proc={num_proc})")
+        rows_per_band = num_perm // num_bands
+        if num_perm % num_bands != 0:
+            raise ValueError(f"num_perm ({num_perm}) must be divisible by num_bands ({num_bands})")
 
-        # Phase A: compute MinHash signatures in parallel.
-        # We serialise signatures as int64 arrays (faster than pickling MinHash objects).
+        logger.info(f"Deduplicating {n_total:,} docs "
+                    f"(threshold={threshold}, num_perm={num_perm}, "
+                    f"bands={num_bands}×{rows_per_band}, num_proc={num_proc})")
+
+        # Phase A: MinHash signatures (parallel)
         def _sig_batch(examples):
             sigs = []
             for text in examples['text']:
@@ -477,24 +488,75 @@ class IndonesianDataProcessor:
             return {'_minhash': sigs}
 
         sig_ds = dataset.map(
-            _sig_batch,
-            batched=True,
-            batch_size=1000,
-            num_proc=num_proc,
-            desc="Computing MinHash signatures",
+            _sig_batch, batched=True, batch_size=1000,
+            num_proc=num_proc, desc="MinHash signatures",
         )
 
-        # Phase B: feed signatures into an LSH index, keep first occurrence.
-        lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
-        keep_indices: List[int] = []
-        for idx, sig in enumerate(tqdm(sig_ds['_minhash'], desc="LSH dedup", total=n_total)):
-            m = MinHash(num_perm=num_perm, hashvalues=np.array(sig, dtype=np.uint64))
-            if not lsh.query(m):
-                key = f"d{idx}"
-                lsh.insert(key, m)
-                keep_indices.append(idx)
+        # Phase B: split each signature into num_bands hash keys (parallel)
+        # Each input doc emits num_bands rows of (doc_id, band_key).
+        def _band_batch(examples, indices):
+            doc_ids: List[int] = []
+            band_keys: List[bytes] = []
+            for doc_id, sig in zip(indices, examples['_minhash']):
+                arr = np.asarray(sig, dtype=np.uint64)
+                for b in range(num_bands):
+                    # 2-byte band index prefix prevents collisions across bands
+                    key = b.to_bytes(2, 'little') + arr[b * rows_per_band:(b + 1) * rows_per_band].tobytes()
+                    doc_ids.append(doc_id)
+                    band_keys.append(key)
+            return {'doc_id': doc_ids, 'band_key': band_keys}
 
-        logger.info(f"Kept {len(keep_indices):,} / {n_total:,} documents after deduplication "
+        bands_ds = sig_ds.map(
+            _band_batch, batched=True, with_indices=True, batch_size=1000,
+            num_proc=num_proc, remove_columns=sig_ds.column_names,
+            desc="LSH band hashes",
+        )
+
+        # Phase C: parallel group_by via PyArrow (uses Arrow's C++ thread pool)
+        import pyarrow as pa
+        import pyarrow.compute as pc
+
+        logger.info(f"Grouping {len(bands_ds):,} band entries via PyArrow group_by "
+                    f"(parallel, {pa.cpu_count()} threads)...")
+        arrow_table: pa.Table = bands_ds.with_format('arrow')[:]
+        grouped = arrow_table.group_by('band_key').aggregate([
+            ('doc_id', 'list'),
+            ('doc_id', 'count'),
+        ])
+        # Drop singletons before union-find to skip ~all rows for unique docs.
+        grouped = grouped.filter(pc.greater(grouped['doc_id_count'], 1))
+        del arrow_table  # free the input table
+
+        n_dup_buckets = len(grouped)
+        logger.info(f"Union-find over {n_dup_buckets:,} duplicate buckets "
+                    f"(singletons skipped)...")
+
+        parent = list(range(n_total))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]  # path compression
+                x = parent[x]
+            return x
+
+        # Iterate the duplicate buckets as Arrow record batches (no full Python copy)
+        doc_id_list_col = grouped.column('doc_id_list')
+        for chunk in doc_id_list_col.iterchunks():
+            for docs in chunk.to_pylist():
+                root = find(docs[0])
+                for d in docs[1:]:
+                    r = find(d)
+                    if r != root:
+                        if r < root:
+                            parent[root] = r
+                            root = r
+                        else:
+                            parent[r] = root
+        del grouped, doc_id_list_col
+
+        # Keep one doc per connected component: the canonical root index.
+        keep_indices = [i for i in range(n_total) if find(i) == i]
+        logger.info(f"Kept {len(keep_indices):,} / {n_total:,} documents after dedup "
                     f"({len(keep_indices) / n_total * 100:.1f}%)")
         return dataset.select(keep_indices)
     

@@ -53,6 +53,51 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+_BUCKET_PROGRESS_COUNTER = None  # mp.Value, set per worker via Pool initializer
+
+
+def _bucket_init_worker(counter):
+    """Pool initializer: store the shared row-counter in each worker."""
+    global _BUCKET_PROGRESS_COUNTER
+    _BUCKET_PROGRESS_COUNTER = counter
+
+
+def _bucket_partition_worker(args):
+    """Worker for parallel hash-partitioned bucketing in deduplicate().
+
+    Each worker scans the full bands dataset but only buckets rows whose
+    band_key hashes to its assigned partition. Different workers handle
+    disjoint key spaces, so their results can be concatenated without merging.
+    Progress is reported through a shared mp.Value so the main process can
+    show a smooth tqdm bar of total rows scanned across all workers.
+
+    Returns: list of buckets (each a list of doc_ids) with len >= 2.
+    """
+    bands_ds, partition_id, num_partitions = args
+    from collections import defaultdict
+
+    local: Dict[bytes, List[int]] = defaultdict(list)
+    rows_unreported = 0
+    REPORT_EVERY = 500_000  # batch counter updates so the lock isn't hammered
+
+    for batch in bands_ds.iter(batch_size=200_000):
+        n = len(batch['doc_id'])
+        for did, bk in zip(batch['doc_id'], batch['band_key']):
+            if hash(bk) % num_partitions == partition_id:
+                local[bk].append(did)
+        rows_unreported += n
+        if rows_unreported >= REPORT_EVERY and _BUCKET_PROGRESS_COUNTER is not None:
+            with _BUCKET_PROGRESS_COUNTER.get_lock():
+                _BUCKET_PROGRESS_COUNTER.value += rows_unreported
+            rows_unreported = 0
+    if rows_unreported and _BUCKET_PROGRESS_COUNTER is not None:
+        with _BUCKET_PROGRESS_COUNTER.get_lock():
+            _BUCKET_PROGRESS_COUNTER.value += rows_unreported
+
+    # Drop singletons here (workers, in parallel) so main process has less to do.
+    return [v for v in local.values() if len(v) > 1]
+
+
 class NERQualityFilter:
     """
     PHASE 3 COMPONENT: NER-based quality scoring
@@ -512,24 +557,62 @@ class IndonesianDataProcessor:
             desc="LSH band hashes",
         )
 
-        # Phase C: parallel group_by via PyArrow (uses Arrow's C++ thread pool)
-        import pyarrow as pa
-        import pyarrow.compute as pc
+        # Phase C: parallel hash-partitioned bucketing via multiprocessing.
+        # Each worker handles a disjoint slice of the band_key space so their
+        # local dicts can be concatenated without a merge step. Workers also
+        # drop singletons so the main process only sees actual duplicate clusters.
+        import multiprocessing as mp
+        import threading
+        import time
 
-        logger.info(f"Grouping {len(bands_ds):,} band entries via PyArrow group_by "
-                    f"(parallel, {pa.cpu_count()} threads)...")
-        arrow_table: pa.Table = bands_ds.with_format('arrow')[:]
-        grouped = arrow_table.group_by('band_key').aggregate([
-            ('doc_id', 'list'),
-            ('doc_id', 'count'),
-        ])
-        # Drop singletons before union-find to skip ~all rows for unique docs.
-        grouped = grouped.filter(pc.greater(grouped['doc_id_count'], 1))
-        del arrow_table  # free the input table
+        n_workers = num_proc or (os.cpu_count() or 1)
+        n_band_rows = len(bands_ds)
+        # Each worker scans the FULL bands_ds (and filters by hash). Total rows
+        # of work across the whole pool is therefore n_band_rows * n_workers.
+        total_work = n_band_rows * n_workers
+        logger.info(f"Parallel bucketing of {n_band_rows:,} band entries "
+                    f"across {n_workers} workers (hash-partitioned, "
+                    f"~{total_work:,} total row scans)...")
 
-        n_dup_buckets = len(grouped)
-        logger.info(f"Union-find over {n_dup_buckets:,} duplicate buckets "
-                    f"(singletons skipped)...")
+        ctx = mp.get_context('fork')
+        progress_counter = ctx.Value('q', 0)
+
+        # Background poller updates a single tqdm bar from the shared counter.
+        pbar = tqdm(total=total_work, desc="Bucketing rows scanned",
+                    unit='row', unit_scale=True)
+        stop_event = threading.Event()
+
+        def _poll_progress():
+            last = 0
+            while not stop_event.is_set():
+                cur = progress_counter.value
+                if cur > last:
+                    pbar.update(cur - last)
+                    last = cur
+                time.sleep(0.5)
+
+        poll_thread = threading.Thread(target=_poll_progress, daemon=True)
+        poll_thread.start()
+
+        worker_args = [(bands_ds, i, n_workers) for i in range(n_workers)]
+        all_dup_buckets: List[List[int]] = []
+        with ctx.Pool(n_workers,
+                      initializer=_bucket_init_worker,
+                      initargs=(progress_counter,)) as pool:
+            for partition_buckets in pool.imap_unordered(
+                    _bucket_partition_worker, worker_args):
+                all_dup_buckets.extend(partition_buckets)
+
+        # Stop poller and flush final delta into the bar.
+        stop_event.set()
+        poll_thread.join(timeout=2)
+        final = progress_counter.value
+        if final > pbar.n:
+            pbar.update(final - pbar.n)
+        pbar.close()
+
+        n_dup_buckets = len(all_dup_buckets)
+        logger.info(f"Union-find over {n_dup_buckets:,} duplicate buckets...")
 
         parent = list(range(n_total))
 
@@ -539,20 +622,17 @@ class IndonesianDataProcessor:
                 x = parent[x]
             return x
 
-        # Iterate the duplicate buckets as Arrow record batches (no full Python copy)
-        doc_id_list_col = grouped.column('doc_id_list')
-        for chunk in doc_id_list_col.iterchunks():
-            for docs in chunk.to_pylist():
-                root = find(docs[0])
-                for d in docs[1:]:
-                    r = find(d)
-                    if r != root:
-                        if r < root:
-                            parent[root] = r
-                            root = r
-                        else:
-                            parent[r] = root
-        del grouped, doc_id_list_col
+        for docs in all_dup_buckets:
+            root = find(docs[0])
+            for d in docs[1:]:
+                r = find(d)
+                if r != root:
+                    if r < root:
+                        parent[root] = r
+                        root = r
+                    else:
+                        parent[r] = root
+        del all_dup_buckets
 
         # Keep one doc per connected component: the canonical root index.
         keep_indices = [i for i in range(n_total) if find(i) == i]

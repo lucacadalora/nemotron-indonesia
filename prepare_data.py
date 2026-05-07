@@ -43,6 +43,7 @@ from datasets import load_dataset, Dataset, DatasetDict, concatenate_datasets
 from transformers import AutoTokenizer, AutoModelForTokenClassification, pipeline
 import numpy as np
 from tqdm import tqdm
+from datasketch import MinHash, MinHashLSH
 
 logging.basicConfig(
     level=logging.INFO,
@@ -213,18 +214,14 @@ class IndonesianDataProcessor:
             return None
     
     def download_cc100(self, language: str = 'id', max_examples: int = 0):
-        """Load CC100 from a pre-extracted plain-text file (preferred) or the .xz archive.
+        """Load CC100 text corpus. Resolution order:
 
-        Preferred: extract first so lzma is not involved at all:
-            xz -dk data/raw/cc100/id.txt.xz   # keeps the .xz, writes id.txt
-        If the .xz footer is corrupt use Python to extract:
-            python -c "
-            import lzma
-            with lzma.open('data/raw/cc100/id.txt.xz','rb') as i, open('data/raw/cc100/id.txt','wb') as o:
-                try:
-                    while chunk := i.read(1<<20): o.write(chunk)
-                except lzma.LZMAError: pass
-            "
+        1. data/raw/cc100/id.txt      — plain text, used directly (fastest)
+        2. data/raw/cc100/id.7z       — auto-extracted to id.txt via py7zr
+        3. data/raw/cc100/id.txt.xz   — read via lzma (corrupt-footer safe)
+
+        The original id.txt.xz from statmt.org has a corrupt XZ footer on Linux.
+        Workaround: extract on Windows with 7-Zip, repack as id.7z, copy to server.
         Set max_examples > 0 to read a subset.
         """
         import lzma
@@ -232,7 +229,19 @@ class IndonesianDataProcessor:
 
         cc100_dir = self.data_dir / 'cc100'
         txt_file = cc100_dir / f'{language}.txt'
+        z7_file  = cc100_dir / f'{language}.7z'
         xz_file  = cc100_dir / f'{language}.txt.xz'
+
+        # Auto-extract .7z → .txt if needed
+        if not txt_file.exists() and z7_file.exists():
+            logger.info(f"Extracting {z7_file} → {txt_file} ...")
+            try:
+                import py7zr
+                with py7zr.SevenZipFile(z7_file, mode='r') as archive:
+                    archive.extractall(path=str(cc100_dir))
+                logger.info("Extraction complete.")
+            except Exception as e:
+                logger.warning(f"Failed to extract {z7_file}: {e}")
 
         if txt_file.exists():
             cap_msg = f"capped at {max_examples:,}" if max_examples > 0 else "full corpus"
@@ -438,71 +447,67 @@ class IndonesianDataProcessor:
         
         return text.strip()
     
-    def compute_minhash(self, text: str, num_hashes: int = 128) -> List[int]:
-        """Compute MinHash for deduplication"""
-        shingles = set()
+    @staticmethod
+    def _shingles(text: str, k: int = 5) -> List[bytes]:
         words = text.split()
-        
-        # Create 5-gram shingles
-        for i in range(len(words) - 4):
-            shingle = ' '.join(words[i:i+5])
-            shingles.add(hashlib.md5(shingle.encode()).hexdigest())
-        
-        # Compute minhash signatures
-        signatures = []
-        for i in range(num_hashes):
-            min_hash = float('inf')
-            for shingle in shingles:
-                hash_val = int(hashlib.md5(f"{shingle}_{i}".encode()).hexdigest(), 16)
-                min_hash = min(min_hash, hash_val)
-            signatures.append(min_hash)
-        
-        return signatures
-    
-    def deduplicate(self, dataset: Dataset, threshold: float = 0.85, batch_size: int = 10000) -> Dataset:
-        """Remove near-duplicate documents using MinHash LSH"""
-        logger.info(f"Deduplicating dataset with threshold {threshold}")
-        
-        signatures = []
-        keep_indices = []
-        
-        for idx in tqdm(range(len(dataset)), desc="Computing signatures"):
-            text = dataset[idx].get('text', '')
-            sig = self.compute_minhash(text)
-            signatures.append(sig)
-        
-        # Simple pairwise comparison (for small datasets)
-        # For large datasets, use LSH
-        for i in tqdm(range(len(signatures)), desc="Deduplicating"):
-            is_duplicate = False
-            for j in keep_indices:
-                # Compute Jaccard similarity
-                intersection = sum(1 for a, b in zip(signatures[i], signatures[j]) if a == b)
-                similarity = intersection / len(signatures[i])
-                
-                if similarity > threshold:
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                keep_indices.append(i)
-        
-        logger.info(f"Kept {len(keep_indices)} / {len(dataset)} documents after deduplication")
+        if len(words) < k:
+            return [text.encode('utf-8')] if text else []
+        return [' '.join(words[i:i + k]).encode('utf-8') for i in range(len(words) - k + 1)]
+
+    def deduplicate(self, dataset: Dataset, threshold: float = 0.85,
+                    num_perm: int = 128, num_proc: Optional[int] = None) -> Dataset:
+        """Near-duplicate removal via datasketch MinHash + LSH.
+
+        Signature computation is parallelised across num_proc workers via
+        Dataset.map. Dedup uses an LSH index for near-linear lookup instead
+        of the previous O(n^2) pairwise comparison.
+        """
+        n_total = len(dataset)
+        logger.info(f"Deduplicating {n_total:,} docs (threshold={threshold}, num_perm={num_perm}, num_proc={num_proc})")
+
+        # Phase A: compute MinHash signatures in parallel.
+        # We serialise signatures as int64 arrays (faster than pickling MinHash objects).
+        def _sig_batch(examples):
+            sigs = []
+            for text in examples['text']:
+                m = MinHash(num_perm=num_perm)
+                for sh in IndonesianDataProcessor._shingles(text or '', k=5):
+                    m.update(sh)
+                sigs.append(m.hashvalues.tolist())
+            return {'_minhash': sigs}
+
+        sig_ds = dataset.map(
+            _sig_batch,
+            batched=True,
+            batch_size=1000,
+            num_proc=num_proc,
+            desc="Computing MinHash signatures",
+        )
+
+        # Phase B: feed signatures into an LSH index, keep first occurrence.
+        lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
+        keep_indices: List[int] = []
+        for idx, sig in enumerate(tqdm(sig_ds['_minhash'], desc="LSH dedup", total=n_total)):
+            m = MinHash(num_perm=num_perm, hashvalues=np.array(sig, dtype=np.uint64))
+            if not lsh.query(m):
+                key = f"d{idx}"
+                lsh.insert(key, m)
+                keep_indices.append(idx)
+
+        logger.info(f"Kept {len(keep_indices):,} / {n_total:,} documents after deduplication "
+                    f"({len(keep_indices) / n_total * 100:.1f}%)")
         return dataset.select(keep_indices)
     
-    def tokenize_and_format(self, dataset: Dataset, max_length: int = 4096, lang: str = 'id') -> Dataset:
+    def tokenize_and_format(self, dataset: Dataset, max_length: int = 4096, lang: str = 'id',
+                            num_proc: Optional[int] = None) -> Dataset:
         """Tokenize and format dataset for training"""
-        logger.info(f"Tokenizing dataset with max_length={max_length}")
-        
+        logger.info(f"Tokenizing dataset with max_length={max_length} (num_proc={num_proc})")
+
         lang_token = self.lang_tokens.get(lang, '<|id|>')
-        
+
         def format_and_tokenize(examples):
             texts = examples.get('text', examples.get('content', []))
-            
-            # Add language token
             formatted = [f"{lang_token}\n{text}" for text in texts]
-            
-            # Tokenize
             tokenized = self.tokenizer(
                 formatted,
                 truncation=True,
@@ -510,15 +515,17 @@ class IndonesianDataProcessor:
                 padding=False,
                 return_special_tokens_mask=True,
             )
-            
             return tokenized
-        
-        return dataset.map(format_and_tokenize, batched=True, remove_columns=dataset.column_names)
+
+        return dataset.map(format_and_tokenize, batched=True,
+                           remove_columns=dataset.column_names,
+                           num_proc=num_proc, desc="Tokenizing")
     
-    def process_dataset(self, name: str, dataset: Dataset, min_length: int = 100, 
+    def process_dataset(self, name: str, dataset: Dataset, min_length: int = 100,
                        max_length: int = 10000, dedup_threshold: float = 0.85,
                        ner_filter: Optional[NERQualityFilter] = None,
-                       ner_threshold: float = 0.1) -> Optional[Dataset]:
+                       ner_threshold: float = 0.1,
+                       num_proc: Optional[int] = None) -> Optional[Dataset]:
         """
         Process a single dataset through all phases:
         
@@ -545,32 +552,34 @@ class IndonesianDataProcessor:
                     break
         
         # PHASE 2B: Clean text
-        logger.info("Phase 2B: Cleaning text (regex, length, language filters)...")
+        logger.info(f"Phase 2B: Cleaning text (regex, length, language filters; num_proc={num_proc})...")
         def clean_batch(examples):
             cleaned = [self.clean_text(text, min_length, max_length) for text in examples['text']]
             return {'text': [c for c in cleaned if c is not None]}
-        
-        dataset = dataset.map(clean_batch, batched=True, remove_columns=dataset.column_names)
-        dataset = dataset.filter(lambda x: x['text'] is not None and len(x['text']) > 0)
+
+        dataset = dataset.map(clean_batch, batched=True, remove_columns=dataset.column_names,
+                              num_proc=num_proc, desc="Cleaning")
+        dataset = dataset.filter(lambda x: x['text'] is not None and len(x['text']) > 0,
+                                 num_proc=num_proc, desc="Filtering empties")
         logger.info(f"  After cleaning: {len(dataset)} documents")
-        
+
         # PHASE 3: NER Quality Filter (optional)
         if ner_filter and ner_filter.enabled:
             dataset = ner_filter.filter_dataset(dataset, threshold=ner_threshold)
         else:
             logger.info("Phase 3: NER quality filter skipped (not enabled)")
-        
+
         # PHASE 4A: Deduplicate
         if dedup_threshold < 1.0:
             logger.info("Phase 4A: Deduplicating (MinHash LSH)...")
-            dataset = self.deduplicate(dataset, threshold=dedup_threshold)
+            dataset = self.deduplicate(dataset, threshold=dedup_threshold, num_proc=num_proc)
         
         logger.info(f"\n✓ {name}: {len(dataset)} documents after full pipeline")
         logger.info(f"{'='*50}\n")
         return dataset
     
     def create_mixed_dataset(self, datasets: Dict[str, Dataset], output_path: str,
-                            max_length: int = 4096) -> Dataset:
+                            max_length: int = 4096, num_proc: Optional[int] = None) -> Dataset:
         """Create mixed dataset with language tags"""
         logger.info("Creating mixed dataset...")
         
@@ -588,7 +597,7 @@ class IndonesianDataProcessor:
                     break
             
             # Tokenize
-            tokenized = self.tokenize_and_format(ds, max_length=max_length, lang=lang)
+            tokenized = self.tokenize_and_format(ds, max_length=max_length, lang=lang, num_proc=num_proc)
             all_datasets.append(tokenized)
             
             logger.info(f"Added {name} ({lang}): {len(tokenized)} examples")
@@ -644,6 +653,8 @@ Examples:
                        choices=['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
                                 'seapile', 'sealion', 'mc4_id', 'culturax_id', 'all'],
                        help='Which datasets to process')
+    parser.add_argument('--num_proc', type=int, default=os.cpu_count() or 1,
+                       help='Worker processes for cleaning, dedup signature computation, and tokenization (default: all CPU cores)')
     parser.add_argument('--cc100_max_examples', type=int, default=0,
                        help='Max raw lines to read from CC100 (0 = full 360M-line corpus; Arrow cache goes to data/raw/cache/)')
     parser.add_argument('--kaskus_max_examples', type=int, default=0,
@@ -679,6 +690,7 @@ Examples:
     logger.info("="*70)
     logger.info(f"Output directory: {args.output_dir}")
     logger.info(f"Datasets: {args.datasets}")
+    logger.info(f"Worker processes (num_proc): {args.num_proc}")
     logger.info(f"NER filter: {'ENABLED' if args.use_ner_filter else 'DISABLED'}")
     if args.use_ner_filter:
         logger.info(f"  NER model: {args.ner_model}")
@@ -752,7 +764,8 @@ Examples:
             max_length=args.max_length,
             dedup_threshold=args.dedup_threshold,
             ner_filter=ner_filter,
-            ner_threshold=args.quality_threshold
+            ner_threshold=args.quality_threshold,
+            num_proc=args.num_proc,
         )
     
     # ========================================================================
@@ -763,7 +776,7 @@ Examples:
     logger.info("="*70)
     
     output_path = Path(args.output_dir) / 'indonesian_corpus'
-    mixed = processor.create_mixed_dataset(processed, str(output_path))
+    mixed = processor.create_mixed_dataset(processed, str(output_path), num_proc=args.num_proc)
     
     # Save tokenizer with added tokens
     tokenizer_path = Path(args.output_dir) / 'tokenizer'

@@ -447,13 +447,30 @@ class IndonesianDataProcessor:
             return None
 
     def download_liputan6(self):
-        """Download Liputan6 news corpus (parquet-native mirror; fajri91/liputan6 is gone)."""
+        """Download Liputan6 news corpus (parquet-native mirror; fajri91/liputan6 is gone).
+
+        clean_article is list[list[str]] (sentences of tokens). We join tokens
+        with spaces and sentences with newlines to produce a single article string.
+        """
         logger.info("Downloading Liputan6: PetaniHandal/liputan6-canonical")
         try:
             ds = load_dataset('PetaniHandal/liputan6-canonical', split='train')
-            # Rename article column so process_dataset finds it as 'text'
-            if 'clean_article' in ds.column_names and 'text' not in ds.column_names:
-                ds = ds.rename_column('clean_article', 'text')
+
+            def _flatten_article(example):
+                ca = example.get('clean_article', '')
+                if isinstance(ca, str):
+                    text = ca
+                elif isinstance(ca, list):
+                    if ca and isinstance(ca[0], list):
+                        text = '\n'.join(' '.join(tokens) for tokens in ca)
+                    else:
+                        text = '\n'.join(str(s) for s in ca)
+                else:
+                    text = str(ca)
+                return {'text': text}
+
+            ds = ds.map(_flatten_article, remove_columns=ds.column_names,
+                        desc="Flattening Liputan6 articles")
             return ds
         except Exception as e:
             logger.warning(f"Failed to load Liputan6: {e}")
@@ -514,6 +531,9 @@ class IndonesianDataProcessor:
         similarity 0.85 is ~99% and false-positive rate is small.
         """
         n_total = len(dataset)
+        if n_total == 0:
+            logger.warning("Empty dataset passed to deduplicate(); nothing to do.")
+            return dataset
         rows_per_band = num_perm // num_bands
         if num_perm % num_bands != 0:
             raise ValueError(f"num_perm ({num_perm}) must be divisible by num_bands ({num_bands})")
@@ -705,6 +725,12 @@ class IndonesianDataProcessor:
                                  num_proc=num_proc, desc="Filtering empties")
         logger.info(f"  After cleaning: {len(dataset)} documents")
 
+        if len(dataset) == 0:
+            logger.warning(f"[{name}] Cleaning filtered out all documents. "
+                           f"Likely the dataset's 'text' field has an unexpected structure "
+                           f"(list-of-tokens, list-of-sentences, etc). Returning empty dataset.")
+            return dataset
+
         # PHASE 3: NER Quality Filter (optional)
         if ner_filter and ner_filter.enabled:
             dataset = ner_filter.filter_dataset(dataset, threshold=ner_threshold)
@@ -809,6 +835,13 @@ Examples:
                        help='Maximum tokens to process (20B default)')
     parser.add_argument('--dedup_threshold', type=float, default=0.85,
                        help='MinHash similarity threshold (0.85 = 85%% similar = duplicate)')
+    parser.add_argument('--skip_dedup_for', nargs='*', default=[],
+                       help='Dataset names to skip MinHash dedup for. Default: cc100 '
+                            '(sentence-level corpus that produces skewed buckets and stalls). '
+                            'Pass empty list to dedup everything.')
+    parser.add_argument('--no_resume', action='store_true',
+                       help='Force reprocess all datasets even if {output_dir}/per_dataset/{name} '
+                            'checkpoints exist. Default behaviour is to resume from checkpoints.')
     parser.add_argument('--tokenizer', '--tokenizer_name', dest='tokenizer', type=str,
                        default='nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16',
                        help='Tokenizer to use for final tokenization')
@@ -842,73 +875,110 @@ Examples:
     processor = IndonesianDataProcessor(tokenizer_name=args.tokenizer, data_dir=args.data_dir)
     
     # ========================================================================
-    # PHASE 1: DOWNLOAD
+    # PHASES 1-4: per-dataset DOWNLOAD → CLEAN → QUALITY → DEDUP → CHECKPOINT
     # ========================================================================
-    logger.info("PHASE 1: DOWNLOADING DATASETS")
-    logger.info("-" * 70)
-    
-    datasets_to_download = []
-    if 'all' in args.datasets:
-        datasets_to_download = ['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
-                                'seapile', 'mc4_id', 'culturax_id']
-    else:
-        datasets_to_download = args.datasets
-
-    datasets = {}
-    for name in datasets_to_download:
-        logger.info(f"\nLoading {name}...")
-        if name == 'indo4b_hf':
-            datasets['indo4b_hf'] = processor.download_indo4b_hf()
-        elif name == 'cc100':
-            datasets['cc100'] = processor.download_cc100(max_examples=args.cc100_max_examples)
-        elif name == 'wikipedia':
-            datasets['wikipedia'] = processor.download_wikipedia()
-        elif name == 'kaskus':
-            datasets['kaskus'] = processor.download_kaskus(max_examples=args.kaskus_max_examples)
-        elif name == 'liputan6':
-            datasets['liputan6'] = processor.download_liputan6()
-        elif name in ('seapile', 'sealion'):
-            datasets['seapile'] = processor.download_sealion_pile()
-        elif name == 'mc4_id':
-            datasets['mc4_id'] = processor.download_mc4_id()
-        elif name == 'culturax_id':
-            datasets['culturax_id'] = processor.download_culturax_id()
-    
-    logger.info("\n" + "-" * 70)
-    logger.info("PHASE 1 COMPLETE")
-    for name, ds in datasets.items():
-        status = f"{len(ds)} rows" if ds else "FAILED"
-        logger.info(f"  {name}: {status}")
-    logger.info("-" * 70 + "\n")
-    
-    # ========================================================================
-    # PHASE 3 (Pre-load): Initialize NER filter if enabled
-    # ========================================================================
-    ner_filter = None
-    if args.use_ner_filter:
-        logger.info("PHASE 3 (PREP): Loading NER quality filter...")
-        ner_filter = NERQualityFilter(model_name=args.ner_model)
-        if not ner_filter.enabled:
-            logger.warning("NER filter failed to load — will proceed without it")
-        logger.info("-" * 70 + "\n")
-    
-    # ========================================================================
-    # PHASE 2-4: Process each dataset (Clean → Quality → Package)
-    # ========================================================================
-    logger.info("PHASES 2-4: CLEAN → QUALITY → PACKAGE")
+    # Checkpoint layout: each dataset's cleaned+deduped output is saved to
+    #   {output_dir}/per_dataset/{name}/
+    # On rerun, an existing directory is loaded as-is and that dataset is skipped.
+    # Delete a per-dataset directory (or pass --no_resume) to force reprocess.
+    logger.info("PHASES 1-4: DOWNLOAD → CLEAN → QUALITY → DEDUP (per dataset, resumable)")
     logger.info("=" * 70)
-    
+
+    datasets_to_process = []
+    if 'all' in args.datasets:
+        datasets_to_process = ['indo4b_hf', 'cc100', 'wikipedia', 'kaskus', 'liputan6',
+                               'seapile', 'mc4_id', 'culturax_id']
+    else:
+        datasets_to_process = args.datasets
+
+    skip_dedup_set = set(args.skip_dedup_for or [])
+    per_dataset_root = Path(args.output_dir) / 'per_dataset'
+    per_dataset_root.mkdir(parents=True, exist_ok=True)
+
+    # Lazy-init NER filter only if at least one un-cached dataset needs it.
+    ner_filter = None
+    ner_filter_init_attempted = False
+
+    def _download(name: str):
+        if name == 'indo4b_hf':
+            return processor.download_indo4b_hf()
+        if name == 'cc100':
+            return processor.download_cc100(max_examples=args.cc100_max_examples)
+        if name == 'wikipedia':
+            return processor.download_wikipedia()
+        if name == 'kaskus':
+            return processor.download_kaskus(max_examples=args.kaskus_max_examples)
+        if name == 'liputan6':
+            return processor.download_liputan6()
+        if name in ('seapile', 'sealion'):
+            return processor.download_sealion_pile()
+        if name == 'mc4_id':
+            return processor.download_mc4_id()
+        if name == 'culturax_id':
+            return processor.download_culturax_id()
+        raise ValueError(f"Unknown dataset: {name}")
+
     processed = {}
-    for name, ds in datasets.items():
-        processed[name] = processor.process_dataset(
-            name, ds,
+    for name in datasets_to_process:
+        ckpt_path = per_dataset_root / name
+        # Resume: if a prior run produced this dataset, load it and move on.
+        if not args.no_resume and ckpt_path.exists():
+            try:
+                logger.info(f"\n[{name}] RESUMING from checkpoint: {ckpt_path}")
+                processed[name] = Dataset.load_from_disk(str(ckpt_path))
+                logger.info(f"[{name}] Loaded {len(processed[name]):,} processed docs.")
+                continue
+            except Exception as e:
+                logger.warning(f"[{name}] Failed to load checkpoint ({e}); reprocessing.")
+
+        # Download
+        logger.info(f"\n[{name}] DOWNLOAD")
+        raw = _download(name)
+        if raw is None:
+            logger.warning(f"[{name}] download returned None — skipping.")
+            processed[name] = None
+            continue
+
+        # NER filter loaded once, on first dataset that needs it.
+        if args.use_ner_filter and not ner_filter_init_attempted:
+            logger.info("Loading NER quality filter (first use)...")
+            ner_filter = NERQualityFilter(model_name=args.ner_model)
+            ner_filter_init_attempted = True
+            if not ner_filter.enabled:
+                logger.warning("NER filter failed to load — proceeding without it")
+
+        # Clean + (optional NER) + dedup
+        per_dataset_threshold = 1.0 if name in skip_dedup_set else args.dedup_threshold
+        if name in skip_dedup_set:
+            logger.info(f"[{name}] Dedup SKIPPED (in --skip_dedup_for list)")
+        result = processor.process_dataset(
+            name, raw,
             min_length=args.min_length,
             max_length=args.max_length,
-            dedup_threshold=args.dedup_threshold,
+            dedup_threshold=per_dataset_threshold,
             ner_filter=ner_filter,
             ner_threshold=args.quality_threshold,
             num_proc=args.num_proc,
         )
+        processed[name] = result
+
+        # Checkpoint: save the cleaned+deduped per-dataset output for resume.
+        if result is not None:
+            try:
+                # Write to a temp dir then atomically rename so a crashed run
+                # never leaves a half-written checkpoint that we'd then load.
+                tmp_path = ckpt_path.with_name(ckpt_path.name + '.tmp')
+                if tmp_path.exists():
+                    import shutil
+                    shutil.rmtree(tmp_path)
+                result.save_to_disk(str(tmp_path))
+                if ckpt_path.exists():
+                    import shutil
+                    shutil.rmtree(ckpt_path)
+                tmp_path.rename(ckpt_path)
+                logger.info(f"[{name}] Checkpoint saved: {ckpt_path} ({len(result):,} docs)")
+            except Exception as e:
+                logger.warning(f"[{name}] Failed to save checkpoint at {ckpt_path}: {e}")
     
     # ========================================================================
     # FINAL: Create mixed dataset and save
